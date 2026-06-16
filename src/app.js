@@ -236,7 +236,7 @@ function windowTitle(id) {
 }
 
 function topbar() {
-  const phase = state.room?.status || state.phase;
+  const phase = state.game?.status || state.room?.status || state.phase;
   const gameLabel = state.room ? `Room ${state.room.code}` : "No room";
   let timer = "--";
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
@@ -268,13 +268,13 @@ function render() {
       ? renderConnect()
       : state.phase === "invite"
         ? renderInviteJoin()
-      : state.room?.status === "lobby"
-        ? renderLobby()
-        : state.room?.status === "guessing"
+        : state.game?.status === "playing"
+          ? renderGame()
+          : state.room?.status === "guessing" || state.game?.status === "guessing"
           ? renderGuessing()
-          : state.room?.status === "results"
+          : state.room?.status === "results" || state.game?.status === "results"
             ? renderResults()
-            : renderGame();
+            : renderLobby();
 
   app.innerHTML = html`<main class="app-shell">${topbar()}${view}</main>`;
   bindCommonEvents();
@@ -1012,7 +1012,19 @@ async function startGame() {
     render();
     return alert(seatsError.message);
   }
-  await supabase.from("rooms").update({ status: "playing", game_number: nextGameNumber, next_game_at: null }).eq("id", state.room.id);
+  const { data: updatedRoom, error: roomUpdateError } = await supabase
+    .from("rooms")
+    .update({ status: "playing", game_number: nextGameNumber, next_game_at: null })
+    .eq("id", state.room.id)
+    .select("*")
+    .single();
+  if (roomUpdateError) {
+    state.isStartingGame = false;
+    render();
+    return alert(roomUpdateError.message);
+  }
+  state.room = updatedRoom;
+  state.game = game;
   state.isStartingGame = false;
   await refreshAll();
 }

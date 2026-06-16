@@ -19,6 +19,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Improved the lobby: added invite-link visibility, copy room code/link actions, lobby stats, host/you labels, start-readiness messaging, disabled start until 2 human players, automatic settings save on start, and double-start protection.
 - Made live round UI behave like a real desktop: player monitor, identities, public board, DM launcher, and DM threads are draggable windows with minimize, close, taskbar restore, and z-index focus behavior.
 - Invite links now open a join-room modal that requires the player to enter a display name before they are added to the room. Existing participants with a matching saved participant id still load their room directly.
+- Fixed a stale-status start bug where an active game could have a Round 1 timer while the UI still rendered the lobby. Active `game.status` now controls the main render route and topbar status before falling back to `room.status`.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
