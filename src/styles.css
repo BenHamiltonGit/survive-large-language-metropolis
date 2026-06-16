@@ -104,6 +104,29 @@ p {
   padding: 0;
 }
 
+.game-hud {
+  margin-bottom: 10px;
+  padding: 0;
+}
+
+.game-hud-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 72px;
+  padding: 10px 14px;
+}
+
+.big-timer {
+  display: block;
+  margin-left: auto;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.7rem, 6vw, 5.8rem);
+  line-height: 0.86;
+  text-align: right;
+}
+
 .topbar-main,
 .header-window-body {
   display: flex;
@@ -749,15 +772,22 @@ label {
   }
 
   .topbar,
+  .game-hud,
   .results-head,
   .guess-head {
     display: block;
   }
 
   .topbar-main,
+  .game-hud-main,
   .header-window-body {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .big-timer {
+    margin-left: 0;
+    text-align: left;
   }
 
   .form-grid {

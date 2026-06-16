@@ -242,6 +242,23 @@ function topbar() {
   let timer = "--";
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
   if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
+  if (state.game?.status === "playing") {
+    return html`
+      <section class="game-hud window">
+        <div class="window-titlebar topbar-titlebar">
+          <span>GAME_TIMER.EXE</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="game-hud-main">
+          <div>
+            <span class="pill" id="phasePill">${escapeHtml(phase)}</span>
+            <span class="pill muted" id="roomPill">${escapeHtml(gameLabel)}</span>
+          </div>
+          <strong class="big-timer" id="timerPill">${escapeHtml(timer)}</strong>
+        </div>
+      </section>
+    `;
+  }
   return html`
     <section class="topbar window">
       <div class="window-titlebar topbar-titlebar">
