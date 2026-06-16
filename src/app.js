@@ -168,7 +168,7 @@ function renderConnect() {
         <h2>Create a room, send the code, read the room.</h2>
         <p>
           Online rooms sync through Supabase Realtime. Each game anonymizes everyone,
-          adds AI seats, limits messages, then scores only your own final guesses.
+          adds AI seats, limits each message by character count, then scores only your own final guesses.
         </p>
       </div>
       <form class="panel" id="connectForm">
@@ -230,7 +230,7 @@ function renderLobby() {
                   <label>AI seats<input name="aiCount" type="number" min="1" max="8" value="${s.aiCount}" /></label>
                   <label>Rounds<input name="roundCount" type="number" min="1" max="8" value="${s.roundCount}" /></label>
                   <label>Seconds per round<input name="roundSeconds" type="number" min="10" max="180" value="${s.roundSeconds}" /></label>
-                  <label>Message limit<input name="charLimit" type="number" min="40" max="280" value="${s.charLimit}" /></label>
+                  <label>Character limit<input name="charLimit" type="number" min="40" max="280" value="${s.charLimit}" /></label>
                 </div>
                 <div class="actions" style="margin-top:16px">
                   <button class="secondary" type="submit">Save settings</button>
@@ -263,7 +263,7 @@ function renderGame() {
             <div class="allowance"><span>Public</span><strong>${publicLeft}</strong></div>
             <div class="allowance"><span>New DMs</span><strong>${newDmLeft}</strong></div>
             <div class="allowance"><span>Replies</span><strong>${replyLeft}</strong></div>
-            <div class="allowance"><span>Limit</span><strong>${s.charLimit} chars</strong></div>
+            <div class="allowance"><span>Character limit</span><strong>${s.charLimit}</strong></div>
           </div>
         </div>
         <div class="panel-section">
@@ -273,32 +273,33 @@ function renderGame() {
       </aside>
       <section class="play-area">
         <div class="identity-rail">${state.seats.map((entry) => `<article class="identity">${identityName(entry)}<div class="identity-meta">Anonymous seat</div></article>`).join("")}</div>
-        <div class="message-layout">
-          <section class="board-panel">
-            <div class="section-title"><span>Public board</span></div>
+        <div class="desktop-surface">
+          <section class="window board-window">
+            <div class="window-titlebar">
+              <span>Public Board</span>
+              <span class="window-controls">_ [] X</span>
+            </div>
             <div class="message-list">${publicMessages()}</div>
             <form id="publicForm" class="composer">
-              <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="Send one public message this round"></textarea>
+              <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="One public post this round"></textarea>
               <div class="composer-row">
-                <span class="counter">max ${s.charLimit}</span>
+                <span class="counter">character limit ${s.charLimit}</span>
                 <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
               </div>
             </form>
           </section>
-          <section class="dm-panel">
-            <div class="section-title"><span>Direct messages</span></div>
+
+          <section class="window dm-launcher">
+            <div class="window-titlebar">
+              <span>Open Direct Message</span>
+              <span class="window-controls">_ [] X</span>
+            </div>
             <div class="dm-controls">
               <select id="dmSeat">${dmOptions()}</select>
             </div>
-            <div class="message-list">${directMessages()}</div>
-            <form id="dmForm" class="composer">
-              <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="Send a new DM or reply"></textarea>
-              <div class="composer-row">
-                <span class="counter">new ${newDmLeft} / replies ${replyLeft}</span>
-                <button type="submit" ${newDmLeft <= 0 && replyLeft <= 0 ? "disabled" : ""}>Send DM</button>
-              </div>
-            </form>
           </section>
+
+          <div class="dm-window-grid">${dmWindows(newDmLeft, replyLeft)}</div>
         </div>
       </section>
     </section>
@@ -394,10 +395,8 @@ function dmOptions() {
   return options;
 }
 
-function directMessages() {
+function directMessagesFor(otherId) {
   const mine = mySeat();
-  const otherId = state.selectedDmSeatId || state.seats.find((seat) => seat.id !== mine?.id)?.id;
-  if (!state.selectedDmSeatId && otherId) state.selectedDmSeatId = otherId;
   const messages = state.messages.filter(
     (message) =>
       message.channel === "direct" &&
@@ -405,6 +404,48 @@ function directMessages() {
         (message.from_seat_id === otherId && message.to_seat_id === mine?.id)),
   );
   return messages.map(messageHtml).join("") || `<article class="message"><p>No DMs in this thread.</p></article>`;
+}
+
+function dmWindows(newDmLeft, replyLeft) {
+  const mine = mySeat();
+  if (!mine) return "";
+  const threadSeatIds = new Set(
+    state.messages
+      .filter((message) => message.channel === "direct" && (message.from_seat_id === mine.id || message.to_seat_id === mine.id))
+      .map((message) => (message.from_seat_id === mine.id ? message.to_seat_id : message.from_seat_id)),
+  );
+  const defaultSeat = state.selectedDmSeatId || state.seats.find((seat) => seat.id !== mine.id)?.id;
+  if (defaultSeat) threadSeatIds.add(defaultSeat);
+  state.selectedDmSeatId = defaultSeat || "";
+
+  return [...threadSeatIds]
+    .filter(Boolean)
+    .map((seatId) => {
+      const seat = seatById(seatId);
+      if (!seat) return "";
+      const isFocused = seatId === state.selectedDmSeatId;
+      return `
+        <section class="window dm-window ${isFocused ? "focused" : ""}">
+          <div class="window-titlebar">
+            <span>${escapeHtml(seat.alias)}.dm</span>
+            <span class="window-controls">_ [] X</span>
+          </div>
+          <div class="message-list compact">${directMessagesFor(seatId)}</div>
+          ${
+            isFocused
+              ? `<form id="dmForm" class="composer">
+                  <textarea name="body" rows="2" maxlength="${settings().charLimit}" placeholder="Message ${escapeHtml(seat.alias)}"></textarea>
+                  <div class="composer-row">
+                    <span class="counter">new ${newDmLeft} / replies ${replyLeft}</span>
+                    <button type="submit" ${newDmLeft <= 0 && replyLeft <= 0 ? "disabled" : ""}>Send</button>
+                  </div>
+                </form>`
+              : `<button class="secondary focus-dm" type="button" data-seat-id="${seat.id}">Open this window</button>`
+          }
+        </section>
+      `;
+    })
+    .join("");
 }
 
 function messagesFromMe(channel) {
@@ -485,6 +526,12 @@ function bindCommonEvents() {
   document.getElementById("dmSeat")?.addEventListener("change", (event) => {
     state.selectedDmSeatId = event.target.value;
     render();
+  });
+  document.querySelectorAll(".focus-dm").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedDmSeatId = button.dataset.seatId || "";
+      render();
+    });
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
 }
