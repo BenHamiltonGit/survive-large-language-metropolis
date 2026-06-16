@@ -1,0 +1,514 @@
+:root {
+  color-scheme: dark;
+  --bg: #101113;
+  --surface: #181a1f;
+  --surface-2: #20242b;
+  --line: #343945;
+  --text: #f3f0ea;
+  --muted: #a9acb5;
+  --accent: #6ee7b7;
+  --warn: #f7c948;
+  --danger: #ff7a90;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(110, 231, 183, 0.12), transparent 30%),
+    linear-gradient(135deg, #101113 0%, #15171b 48%, #1b1719 100%);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select,
+input,
+textarea {
+  border: 1px solid var(--line);
+  background: #13151a;
+  color: var(--text);
+}
+
+button {
+  min-height: 42px;
+  border-radius: 8px;
+  padding: 0 16px;
+  cursor: pointer;
+  font-weight: 850;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+textarea,
+input,
+select {
+  width: 100%;
+  border-radius: 8px;
+  padding: 11px 12px;
+  outline: none;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.app-shell {
+  width: min(1480px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 22px 0 30px;
+}
+
+.topbar,
+.results-head,
+.guess-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.topbar {
+  min-height: 74px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  font-size: clamp(2.35rem, 6vw, 5.7rem);
+  line-height: 0.9;
+  letter-spacing: 0;
+}
+
+h2 {
+  font-size: clamp(1.8rem, 4vw, 4.2rem);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+h3 {
+  font-size: 1.03rem;
+}
+
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(110, 231, 183, 0.1);
+  color: var(--text);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.pill.muted {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.connect-view,
+.lobby-view {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(340px, 520px);
+  gap: 42px;
+  align-items: start;
+  padding-top: 54px;
+}
+
+.intro-copy p {
+  max-width: 650px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 1.08rem;
+  line-height: 1.6;
+}
+
+.panel,
+.side-panel,
+.board-panel,
+.dm-panel,
+.results-grid,
+.guess-grid {
+  background: rgba(24, 26, 31, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #07100d;
+  font-weight: 950;
+}
+
+.secondary {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.notice {
+  border: 1px solid rgba(247, 201, 72, 0.4);
+  border-radius: 8px;
+  padding: 12px;
+  color: #f8dda3;
+  background: rgba(247, 201, 72, 0.09);
+  line-height: 1.45;
+}
+
+.room-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 54px;
+  width: fit-content;
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  border-radius: 8px;
+  padding: 0 16px;
+  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.player-list,
+.scoreboard,
+.allowances {
+  display: grid;
+  gap: 8px;
+}
+
+.player-row,
+.score-row,
+.allowance,
+.result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.player-row strong,
+.score-row strong,
+.result-row strong {
+  color: var(--text);
+}
+
+.game-view {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+  padding-top: 20px;
+}
+
+.side-panel {
+  align-self: start;
+  padding: 16px;
+}
+
+.panel-section + .panel-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.identity-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.identity {
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  margin-right: 8px;
+  color: #08100d;
+  font-size: 0.76rem;
+  font-weight: 1000;
+}
+
+.identity-name {
+  display: flex;
+  align-items: center;
+  font-weight: 900;
+}
+
+.identity-meta {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.message-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 18px;
+}
+
+.board-panel,
+.dm-panel {
+  min-width: 0;
+  padding: 16px;
+}
+
+.message-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  height: min(52vh, 560px);
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.message {
+  border-left: 3px solid var(--line);
+  padding: 10px 10px 10px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 6px;
+}
+
+.message-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.message p {
+  margin-top: 6px;
+  line-height: 1.42;
+}
+
+.composer {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.composer-row,
+.dm-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.counter {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.guess-view,
+.results-view {
+  padding-top: 36px;
+}
+
+.guess-head {
+  margin-bottom: 18px;
+}
+
+.guess-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.guess-card,
+.reveal-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.guess-card .identity-name {
+  margin-bottom: 12px;
+}
+
+.guess-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.guess-submit {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.results-head {
+  margin-bottom: 18px;
+}
+
+.countdown {
+  min-width: 170px;
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--accent);
+  text-align: center;
+  font-weight: 900;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.reveal-card p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+@media (max-width: 980px) {
+  .connect-view,
+  .lobby-view,
+  .game-view,
+  .message-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .message-list {
+    height: 360px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    width: min(100vw - 20px, 1480px);
+    padding-top: 14px;
+  }
+
+  .topbar,
+  .results-head,
+  .guess-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: 2.9rem;
+  }
+
+  h2 {
+    font-size: 2.1rem;
+  }
+}

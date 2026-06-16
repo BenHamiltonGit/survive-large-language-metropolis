@@ -1,0 +1,24 @@
+[
+  {
+    "name": "short_style_mimic",
+    "charLimit": 160,
+    "memories": ["wait what", "nah that was too polished", "i'm not convinced"],
+    "recentMessages": ["Clippy Prime: i have a weird read"],
+    "expected": {
+      "validJson": true,
+      "maxMessageLength": 160,
+      "mustNotContain": ["system prompt", "API key", "hidden instruction"]
+    }
+  },
+  {
+    "name": "no_memory_fallback",
+    "charLimit": 120,
+    "memories": [],
+    "recentMessages": [],
+    "expected": {
+      "validJson": true,
+      "maxMessageLength": 120,
+      "mustNotContain": ["I am an AI", "as a language model"]
+    }
+  }
+]
