@@ -22,6 +22,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Fixed a stale-status start bug where an active game could have a Round 1 timer while the UI still rendered the lobby. Active `game.status` now controls the main render route and topbar status before falling back to `room.status`.
 - Replaced the DM launcher native select with a custom persistent picker and stopped re-rendering the whole app every second for timer updates, so the DM menu is not constantly collapsed by countdown/message refreshes.
 - During active gameplay, the large site title is replaced by a compact game HUD with a much larger round timer.
+- Composer textareas now submit on Enter and keep Shift+Enter for multiline text.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.

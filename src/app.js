@@ -770,6 +770,9 @@ function bindCommonEvents() {
   document.getElementById("copyCode")?.addEventListener("click", copyRoomCode);
   document.getElementById("publicForm")?.addEventListener("submit", onPublicMessage);
   document.getElementById("dmForm")?.addEventListener("submit", onDirectMessage);
+  document.querySelectorAll(".composer textarea").forEach((textarea) => {
+    textarea.addEventListener("keydown", onComposerKeydown);
+  });
   document.getElementById("dmPickerToggle")?.addEventListener("click", () => {
     state.dmPickerOpen = !state.dmPickerOpen;
     render();
@@ -802,6 +805,12 @@ function bindCommonEvents() {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
+}
+
+function onComposerKeydown(event) {
+  if (event.key !== "Enter" || event.shiftKey) return;
+  event.preventDefault();
+  event.currentTarget.closest("form")?.requestSubmit();
 }
 
 function onWindowAction(event) {
