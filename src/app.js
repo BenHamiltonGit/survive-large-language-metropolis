@@ -7,6 +7,7 @@ const SUPABASE_PUBLIC_KEY =
 const supabaseReady = Boolean(SUPABASE_URL && SUPABASE_PUBLIC_KEY);
 const supabase = supabaseReady ? createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY) : null;
 const LOCAL_AI_ONLY = import.meta.env.DEV || import.meta.env.VITE_USE_LOCAL_AI_ONLY === "true";
+const GUESS_SECONDS = 30;
 
 const BOT_NAMES = [
   "Clippy Prime",
@@ -242,6 +243,7 @@ function topbar() {
   const gameLabel = state.room ? `Room ${state.room.code}` : "No room";
   let timer = "--";
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
+  if (state.game?.status === "guessing") timer = `Guesses close in ${state.countdown}s`;
   if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
   if (state.game?.status === "playing") {
     return html`
@@ -528,7 +530,10 @@ function renderGuessing() {
           <p class="eyebrow">Final read</p>
           <h2>Label every identity</h2>
           </div>
-          <span class="pill muted">${state.guesses.length}/${state.participants.length} submitted</span>
+          <div class="guess-status">
+            <strong id="guessTimerPill">${state.countdown}s</strong>
+            <span class="pill muted">${state.guesses.length}/${state.participants.length} submitted</span>
+          </div>
         </div>
       </div>
       ${submitted
@@ -1017,6 +1022,7 @@ function startLocalTimer() {
 
 function updateCountdown() {
   if (state.game?.status === "playing") state.countdown = secondsUntil(state.game.round_ends_at);
+  else if (state.game?.status === "guessing") state.countdown = secondsUntil(state.game.round_ends_at);
   else if (state.room?.status === "results") state.countdown = secondsUntil(state.room.next_game_at);
   else state.countdown = 0;
 }
@@ -1025,13 +1031,16 @@ function updateTimerDisplay() {
   const phase = state.game?.status || state.room?.status || state.phase;
   let timer = "--";
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
+  if (state.game?.status === "guessing") timer = `Guesses close in ${state.countdown}s`;
   if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
   const phasePill = document.getElementById("phasePill");
   const timerPill = document.getElementById("timerPill");
   const roomPill = document.getElementById("roomPill");
+  const guessTimerPill = document.getElementById("guessTimerPill");
   if (phasePill) phasePill.textContent = phase;
   if (timerPill) timerPill.textContent = timer;
   if (roomPill) roomPill.textContent = state.room ? `Room ${state.room.code}` : "No room";
+  if (guessTimerPill) guessTimerPill.textContent = `${state.countdown}s`;
 }
 
 async function onSaveSettings(event) {
@@ -1200,7 +1209,7 @@ async function hostMaintenance() {
   if (!isHost() || !state.room) return;
   if (state.game?.status === "playing" && state.countdown <= 0) {
     if (state.game.round_number >= settings().roundCount) {
-      await supabase.from("games").update({ status: "guessing" }).eq("id", state.game.id);
+      await supabase.from("games").update({ status: "guessing", round_ends_at: nowPlus(GUESS_SECONDS) }).eq("id", state.game.id);
       await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
       return;
     }
@@ -1213,7 +1222,11 @@ async function hostMaintenance() {
   if (state.game?.status === "playing") {
     await runAiRoundMessages();
   }
-  if (state.room.status === "guessing" && state.guesses.length >= state.participants.length && state.participants.length > 0) {
+  if (
+    state.game?.status === "guessing" &&
+    state.participants.length > 0 &&
+    (state.countdown <= 0 || state.guesses.length >= state.participants.length)
+  ) {
     await scoreGame();
   }
   if (state.room.status === "results" && state.countdown <= 0) {

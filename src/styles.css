@@ -679,6 +679,25 @@ label {
   margin-bottom: 16px;
 }
 
+.guess-status {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.guess-status strong {
+  display: block;
+  min-width: 120px;
+  border: 3px solid var(--line);
+  background: var(--accent-2);
+  padding: 10px 12px;
+  box-shadow: 3px 3px 0 var(--line);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 2rem;
+  line-height: 1;
+  text-align: center;
+}
+
 .guess-head .window-titlebar {
   background: var(--blue);
 }
@@ -796,8 +815,10 @@ label {
 
   .topbar-main,
   .game-hud-main,
+  .guess-status,
   .header-window-body {
     align-items: flex-start;
+    justify-items: start;
     flex-direction: column;
   }
 
