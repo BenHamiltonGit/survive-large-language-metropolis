@@ -244,20 +244,26 @@ function topbar() {
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
   if (state.game?.status === "guessing") timer = `Guesses close in ${state.countdown}s`;
   if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
-  if (state.game?.status === "playing") {
+  if (state.game?.status === "playing" || state.game?.status === "guessing") {
+    const hudTitle = state.game.status === "guessing" ? "GUESS_TIMER.EXE" : "GAME_TIMER.EXE";
+    const timerText = state.game.status === "guessing" ? `${state.countdown}s` : `${state.countdown}s`;
+    const roundText =
+      state.game.status === "guessing"
+        ? "Final labels"
+        : `Round ${state.game.round_number}/${settings().roundCount}`;
     return html`
       <section class="game-hud window">
         <div class="window-titlebar topbar-titlebar">
-          <span>GAME_TIMER.EXE</span>
+          <span>${hudTitle}</span>
           <span class="window-controls">_ [] X</span>
         </div>
         <div class="game-hud-main">
           <div>
             <span class="pill" id="phasePill">${escapeHtml(phase)}</span>
             <span class="pill muted" id="roomPill">${escapeHtml(gameLabel)}</span>
-            <span class="pill muted" id="roundPill">Round ${state.game.round_number}/${settings().roundCount}</span>
+            <span class="pill muted" id="roundPill">${escapeHtml(roundText)}</span>
           </div>
-          <strong class="big-timer" id="timerPill">${state.countdown}s</strong>
+          <strong class="big-timer" id="timerPill">${escapeHtml(timerText)}</strong>
         </div>
       </section>
     `;
@@ -1037,9 +1043,12 @@ function updateTimerDisplay() {
   const roundPill = document.getElementById("roundPill");
   const guessTimerPill = document.getElementById("guessTimerPill");
   if (phasePill) phasePill.textContent = phase;
-  if (timerPill) timerPill.textContent = state.game?.status === "playing" ? `${state.countdown}s` : timer;
+  if (timerPill) timerPill.textContent = state.game?.status === "playing" || state.game?.status === "guessing" ? `${state.countdown}s` : timer;
   if (roomPill) roomPill.textContent = state.room ? `Room ${state.room.code}` : "No room";
-  if (roundPill) roundPill.textContent = `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
+  if (roundPill) {
+    roundPill.textContent =
+      state.game?.status === "guessing" ? "Final labels" : `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
+  }
   if (guessTimerPill) guessTimerPill.textContent = `${state.countdown}s`;
 }
 
