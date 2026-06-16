@@ -68,3 +68,5 @@ npx supabase secrets set OPENAI_API_KEY=sk-your-key --project-ref ictfmncdcthbkv
 ```
 
 Check billing here: https://platform.openai.com/settings/organization/billing/overview
+
+Local dev builds use mock/filler AI messages by default, so `npm run dev` will not call the LLM or spend tokens. Set `VITE_USE_LOCAL_AI_ONLY=true` to force that same token-safe behavior in another test deployment.

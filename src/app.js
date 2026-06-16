@@ -6,6 +6,7 @@ const SUPABASE_PUBLIC_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseReady = Boolean(SUPABASE_URL && SUPABASE_PUBLIC_KEY);
 const supabase = supabaseReady ? createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY) : null;
+const LOCAL_AI_ONLY = import.meta.env.DEV || import.meta.env.VITE_USE_LOCAL_AI_ONLY === "true";
 
 const BOT_NAMES = [
   "Clippy Prime",
@@ -54,6 +55,8 @@ const state = {
   countdown: 0,
   tickTimer: null,
   realtimeChannel: null,
+  aiSendLocks: new Set(),
+  aiLockScope: "",
 };
 
 const app = document.getElementById("app");
@@ -85,6 +88,28 @@ function nowPlus(seconds) {
 function secondsUntil(value) {
   if (!value) return 0;
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1000));
+}
+
+function stableRandom(seed) {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function stableShuffle(items, seed) {
+  return [...items].sort((left, right) => stableRandom(`${seed}:${left.id}`) - stableRandom(`${seed}:${right.id}`));
+}
+
+function aiDelaySeconds(kind, seed) {
+  const roundSeconds = settings().roundSeconds;
+  const earliest = Math.min(Math.max(4, Math.floor(roundSeconds * 0.16)), 10);
+  const latest = Math.max(earliest + 1, roundSeconds - Math.min(8, Math.floor(roundSeconds * 0.18)));
+  const band = kind === "public" ? [0.15, 0.45] : [0.35, 0.88];
+  const offset = band[0] + stableRandom(seed) * (band[1] - band[0]);
+  return Math.min(latest, Math.max(earliest, Math.round(earliest + (latest - earliest) * offset)));
 }
 
 function isHost() {
@@ -844,7 +869,7 @@ async function hostMaintenance() {
       .eq("id", state.game.id);
     await refreshAll();
   }
-  if (state.game?.status === "playing" && state.countdown <= Math.max(0, settings().roundSeconds - 8)) {
+  if (state.game?.status === "playing") {
     await runAiRoundMessages();
   }
   if (state.room.status === "guessing" && state.guesses.length >= state.participants.length && state.participants.length > 0) {
@@ -887,16 +912,30 @@ async function scoreGame() {
 }
 
 async function runAiRoundMessages() {
-  if (!isHost()) return;
+  if (!isHost() || !state.game) return;
+  const lockScope = `${state.game.id}:${state.game.round_number}`;
+  if (state.aiLockScope !== lockScope) {
+    state.aiSendLocks.clear();
+    state.aiLockScope = lockScope;
+  }
+
+  const elapsed = settings().roundSeconds - state.countdown;
   const aiSeats = state.seats.filter((seat) => seat.kind === "ai");
   for (const aiSeat of aiSeats) {
+    const publicKey = `${lockScope}:${aiSeat.id}:public`;
     const publicCount = state.messages.filter(
       (message) => message.from_seat_id === aiSeat.id && message.channel === "public" && message.round_number === state.game.round_number,
     ).length;
-    if (publicCount === 0) await insertAiMessage(aiSeat, "public", null);
+    const publicDelay = aiDelaySeconds("public", publicKey);
+    if (publicCount === 0 && elapsed >= publicDelay && !state.aiSendLocks.has(publicKey)) {
+      state.aiSendLocks.add(publicKey);
+      const sent = await insertAiMessage(aiSeat, "public", null);
+      if (!sent) state.aiSendLocks.delete(publicKey);
+    }
 
-    const targets = shuffle(state.seats.filter((seat) => seat.kind === "human")).slice(0, 2);
-    for (const target of targets) {
+    const targets = stableShuffle(state.seats.filter((seat) => seat.kind === "human"), `${lockScope}:${aiSeat.id}:targets`).slice(0, 2);
+    for (const [index, target] of targets.entries()) {
+      const directKey = `${lockScope}:${aiSeat.id}:direct:${target.id}`;
       const alreadySent = state.messages.some(
         (message) =>
           message.from_seat_id === aiSeat.id &&
@@ -904,12 +943,19 @@ async function runAiRoundMessages() {
           message.channel === "direct" &&
           message.round_number === state.game.round_number,
       );
-      if (!alreadySent) await insertAiMessage(aiSeat, "direct", target.id);
+      const directDelay = aiDelaySeconds("direct", `${directKey}:${index}`);
+      if (!alreadySent && elapsed >= directDelay && !state.aiSendLocks.has(directKey)) {
+        state.aiSendLocks.add(directKey);
+        const sent = await insertAiMessage(aiSeat, "direct", target.id);
+        if (!sent) state.aiSendLocks.delete(directKey);
+      }
     }
   }
 }
 
 async function insertAiMessage(aiSeat, channel, toSeatId) {
+  if (LOCAL_AI_ONLY) return insertLocalAiMessage(aiSeat, channel, toSeatId);
+
   const { data, error } = await supabase.functions.invoke("ai-turn", {
     body: {
       roomId: state.room.id,
@@ -922,10 +968,14 @@ async function insertAiMessage(aiSeat, channel, toSeatId) {
 
   if (!error && data?.message) {
     await refreshAll();
-    return;
+    return true;
   }
 
   console.warn("Falling back to local AI mock:", error?.message || data?.error || "unknown edge function response");
+  return insertLocalAiMessage(aiSeat, channel, toSeatId);
+}
+
+async function insertLocalAiMessage(aiSeat, channel, toSeatId) {
   const body = await generateAiText(aiSeat);
   const fallback = await supabase.from("messages").insert({
     room_id: state.room.id,
@@ -937,6 +987,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId) {
     body,
   });
   if (fallback.error) alert(fallback.error.message);
+  return !fallback.error;
 }
 
 async function generateAiText(aiSeat) {

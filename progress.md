@@ -13,6 +13,8 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Set `OPENAI_API_KEY` as a Supabase Edge Function secret.
 - Live Edge Function smoke test reached OpenAI successfully, but OpenAI returned a quota/billing error.
 - Browser AI flow now invokes `ai-turn` first and falls back to local mock messages if the Edge Function fails.
+- AI browser-hosted turns now use deterministic, realistic pacing instead of sending every public and direct message in one burst. Public messages and DMs are spread across each round with duplicate-send locks.
+- Local dev builds now force mock/filler AI messages and skip the `ai-turn` Edge Function, so testing does not spend LLM tokens. `VITE_USE_LOCAL_AI_ONLY=true` can force that behavior in other test deployments.
 - Completed a full retro desktop UI pass across connect, lobby, gameplay, guessing, and results screens. All major surfaces now use the same chunky window/titlebar style, and the wording says character limit instead of message limit.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
