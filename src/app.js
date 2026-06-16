@@ -255,8 +255,9 @@ function topbar() {
           <div>
             <span class="pill" id="phasePill">${escapeHtml(phase)}</span>
             <span class="pill muted" id="roomPill">${escapeHtml(gameLabel)}</span>
+            <span class="pill muted" id="roundPill">Round ${state.game.round_number}/${settings().roundCount}</span>
           </div>
-          <strong class="big-timer" id="timerPill">${escapeHtml(timer)}</strong>
+          <strong class="big-timer" id="timerPill">${state.countdown}s</strong>
         </div>
       </section>
     `;
@@ -1033,10 +1034,12 @@ function updateTimerDisplay() {
   const phasePill = document.getElementById("phasePill");
   const timerPill = document.getElementById("timerPill");
   const roomPill = document.getElementById("roomPill");
+  const roundPill = document.getElementById("roundPill");
   const guessTimerPill = document.getElementById("guessTimerPill");
   if (phasePill) phasePill.textContent = phase;
-  if (timerPill) timerPill.textContent = timer;
+  if (timerPill) timerPill.textContent = state.game?.status === "playing" ? `${state.countdown}s` : timer;
   if (roomPill) roomPill.textContent = state.room ? `Room ${state.room.code}` : "No room";
+  if (roundPill) roundPill.textContent = `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
   if (guessTimerPill) guessTimerPill.textContent = `${state.countdown}s`;
 }
 

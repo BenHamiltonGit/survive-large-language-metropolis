@@ -121,8 +121,10 @@ p {
 .big-timer {
   display: block;
   margin-left: auto;
+  min-width: 4.2ch;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2.7rem, 6vw, 5.8rem);
+  font-variant-numeric: tabular-nums;
   line-height: 0.86;
   text-align: right;
 }

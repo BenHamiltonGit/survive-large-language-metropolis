@@ -27,6 +27,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Guessing phase now has a 30-second timer using the game deadline field; the host auto-scores when the timer expires or everyone submits.
 - Added an in-game `LABEL_NOTES.EXE` window where players can draft Human/AI labels and human-match guesses during the round; final guessing uses those same draft choices.
 - Removed `DM_LAUNCHER.EXE`; identities in `IDENTITIES.DIR` now open/focus their DM window when clicked. Default live-game layout was adjusted to leave room for monitor, labels, public board, identities, and opened DMs.
+- Gameplay HUD now separates the round label from the countdown; the timer is fixed-width with tabular digits so changing seconds do not move the round text.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
