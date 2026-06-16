@@ -59,6 +59,9 @@ const state = {
   aiLockScope: "",
   isStartingGame: false,
   lobbyNotice: "",
+  windowMeta: {},
+  nextWindowZ: 10,
+  draggingWindow: null,
 };
 
 const app = document.getElementById("app");
@@ -167,6 +170,66 @@ function lobbySummary() {
   const canStart = humanCount >= 2 && !state.isStartingGame;
   const startReason = humanCount < 2 ? "Waiting for at least 2 human players." : "Ready to start.";
   return { ...s, humanCount, totalSeats, canStart, startReason };
+}
+
+function defaultWindowMeta(id) {
+  const dmIndex = id.startsWith("dm-") ? Math.max(0, state.seats.findIndex((seat) => `dm-${seat.id}` === id)) : 0;
+  const defaults = {
+    monitor: { x: 14, y: 14, w: 280, z: 3 },
+    identities: { x: 310, y: 14, w: 620, z: 2 },
+    public: { x: 310, y: 126, w: 520, z: 4 },
+    dmLauncher: { x: 850, y: 126, w: 370, z: 5 },
+  };
+  return defaults[id] || { x: 850 + (dmIndex % 2) * 24, y: 246 + dmIndex * 34, w: 370, z: 6 + dmIndex };
+}
+
+function getWindowMeta(id) {
+  if (!state.windowMeta[id]) state.windowMeta[id] = { ...defaultWindowMeta(id), minimized: false, closed: false };
+  return state.windowMeta[id];
+}
+
+function focusWindow(id) {
+  const meta = getWindowMeta(id);
+  state.nextWindowZ += 1;
+  meta.z = state.nextWindowZ;
+}
+
+function windowStyle(id) {
+  const meta = getWindowMeta(id);
+  return `left:${meta.x}px;top:${meta.y}px;width:${meta.w}px;z-index:${meta.z};`;
+}
+
+function desktopWindow(id, title, body, className = "") {
+  const meta = getWindowMeta(id);
+  if (meta.closed || meta.minimized) return "";
+  return `
+    <section class="window desktop-window ${className}" data-window-id="${id}" style="${windowStyle(id)}">
+      <div class="window-titlebar" data-window-id="${id}">
+        <span>${escapeHtml(title)}</span>
+        <span class="window-controls">
+          <button type="button" title="Minimize" data-window-action="minimize" data-window-id="${id}">_</button>
+          <button type="button" title="Close" data-window-action="close" data-window-id="${id}">X</button>
+        </span>
+      </div>
+      ${body}
+    </section>
+  `;
+}
+
+function taskbarWindows() {
+  return Object.entries(state.windowMeta)
+    .filter(([, meta]) => meta.minimized || meta.closed)
+    .map(([id]) => `<button type="button" class="taskbar-button" data-window-action="restore" data-window-id="${id}">${escapeHtml(windowTitle(id))}</button>`)
+    .join("");
+}
+
+function windowTitle(id) {
+  if (id === "monitor") return "PLAYER_MONITOR.SYS";
+  if (id === "identities") return "IDENTITIES.DIR";
+  if (id === "public") return "PUBLIC_BOARD.EXE";
+  if (id === "dmLauncher") return "DM_LAUNCHER.EXE";
+  if (id.startsWith("dm-")) return `${seatById(id.slice(3))?.alias || "DM"}.dm`;
+  return id;
 }
 
 function topbar() {
@@ -340,64 +403,55 @@ function renderGame() {
   const publicLeft = Math.max(0, 1 - messagesFromMe("public").length);
   const newDmLeft = Math.max(0, 2 - newDmsFromMe().length);
   const replyLeft = Math.max(0, 2 - repliesFromMe().length);
+  const monitorBody = `
+    <div class="window-body">
+      <div class="panel-section">
+        <div class="section-title"><span>You are</span></div>
+        <div class="identity">${seat ? identityName(seat) : "No seat yet"}</div>
+      </div>
+      <div class="panel-section">
+        <div class="section-title"><span>Allowances</span></div>
+        <div class="allowances">
+          <div class="allowance"><span>Public</span><strong>${publicLeft}</strong></div>
+          <div class="allowance"><span>New DMs</span><strong>${newDmLeft}</strong></div>
+          <div class="allowance"><span>Replies</span><strong>${replyLeft}</strong></div>
+          <div class="allowance"><span>Character limit</span><strong>${s.charLimit}</strong></div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="section-title"><span>Scoreboard</span></div>
+        <div class="scoreboard">${scoreboardRows()}</div>
+      </div>
+    </div>
+  `;
+  const identitiesBody = `<div class="identity-rail window-body">${state.seats.map((entry) => `<article class="identity">${identityName(entry)}<div class="identity-meta">Anonymous seat</div></article>`).join("")}</div>`;
+  const publicBody = `
+    <div class="message-list">${publicMessages()}</div>
+    <form id="publicForm" class="composer">
+      <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="One public post this round"></textarea>
+      <div class="composer-row">
+        <span class="counter">character limit ${s.charLimit}</span>
+        <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
+      </div>
+    </form>
+  `;
+  const dmLauncherBody = `
+    <div class="window-body">
+      <div class="dm-controls">
+        <select id="dmSeat">${dmOptions()}</select>
+      </div>
+    </div>
+  `;
   return html`
     <section class="game-view">
-      <aside class="side-panel window">
-        <div class="window-titlebar">
-          <span>PLAYER_MONITOR.SYS</span>
-          <span class="window-controls">_ [] X</span>
-        </div>
-        <div class="window-body">
-        <div class="panel-section">
-          <div class="section-title"><span>You are</span></div>
-          <div class="identity">${seat ? identityName(seat) : "No seat yet"}</div>
-        </div>
-        <div class="panel-section">
-          <div class="section-title"><span>Allowances</span></div>
-          <div class="allowances">
-            <div class="allowance"><span>Public</span><strong>${publicLeft}</strong></div>
-            <div class="allowance"><span>New DMs</span><strong>${newDmLeft}</strong></div>
-            <div class="allowance"><span>Replies</span><strong>${replyLeft}</strong></div>
-            <div class="allowance"><span>Character limit</span><strong>${s.charLimit}</strong></div>
-          </div>
-        </div>
-        <div class="panel-section">
-          <div class="section-title"><span>Scoreboard</span></div>
-          <div class="scoreboard">${scoreboardRows()}</div>
-        </div>
-        </div>
-      </aside>
-      <section class="play-area">
-        <div class="identity-rail">${state.seats.map((entry) => `<article class="identity">${identityName(entry)}<div class="identity-meta">Anonymous seat</div></article>`).join("")}</div>
-        <div class="desktop-surface">
-          <section class="window board-window">
-            <div class="window-titlebar">
-              <span>Public Board</span>
-              <span class="window-controls">_ [] X</span>
-            </div>
-            <div class="message-list">${publicMessages()}</div>
-            <form id="publicForm" class="composer">
-              <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="One public post this round"></textarea>
-              <div class="composer-row">
-                <span class="counter">character limit ${s.charLimit}</span>
-                <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="window dm-launcher">
-            <div class="window-titlebar">
-              <span>Open Direct Message</span>
-              <span class="window-controls">_ [] X</span>
-            </div>
-            <div class="dm-controls">
-              <select id="dmSeat">${dmOptions()}</select>
-            </div>
-          </section>
-
-          <div class="dm-window-grid">${dmWindows(newDmLeft, replyLeft)}</div>
-        </div>
-      </section>
+      <div class="desktop-surface">
+        ${desktopWindow("monitor", "PLAYER_MONITOR.SYS", monitorBody, "monitor-window")}
+        ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
+        ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
+        ${desktopWindow("dmLauncher", "DM_LAUNCHER.EXE", dmLauncherBody, "dm-launcher")}
+        ${dmWindows(newDmLeft, replyLeft)}
+        <div class="desktop-taskbar">${taskbarWindows()}</div>
+      </div>
     </section>
   `;
 }
@@ -532,12 +586,10 @@ function dmWindows(newDmLeft, replyLeft) {
       const seat = seatById(seatId);
       if (!seat) return "";
       const isFocused = seatId === state.selectedDmSeatId;
-      return `
-        <section class="window dm-window ${isFocused ? "focused" : ""}">
-          <div class="window-titlebar">
-            <span>${escapeHtml(seat.alias)}.dm</span>
-            <span class="window-controls">_ [] X</span>
-          </div>
+      return desktopWindow(
+        `dm-${seat.id}`,
+        `${seat.alias}.dm`,
+        `
           <div class="message-list compact">${directMessagesFor(seatId)}</div>
           ${
             isFocused
@@ -550,8 +602,9 @@ function dmWindows(newDmLeft, replyLeft) {
                 </form>`
               : `<button class="secondary focus-dm" type="button" data-seat-id="${seat.id}">Open this window</button>`
           }
-        </section>
-      `;
+        `,
+        `dm-window ${isFocused ? "focused" : ""}`,
+      );
     })
     .join("");
 }
@@ -640,15 +693,78 @@ function bindCommonEvents() {
   document.getElementById("dmForm")?.addEventListener("submit", onDirectMessage);
   document.getElementById("dmSeat")?.addEventListener("change", (event) => {
     state.selectedDmSeatId = event.target.value;
+    const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
+    meta.closed = false;
+    meta.minimized = false;
+    focusWindow(`dm-${state.selectedDmSeatId}`);
     render();
   });
   document.querySelectorAll(".focus-dm").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedDmSeatId = button.dataset.seatId || "";
+      const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
+      meta.closed = false;
+      meta.minimized = false;
+      focusWindow(`dm-${state.selectedDmSeatId}`);
       render();
     });
   });
+  document.querySelectorAll("[data-window-action]").forEach((button) => {
+    button.addEventListener("click", onWindowAction);
+  });
+  document.querySelectorAll(".desktop-window .window-titlebar").forEach((titlebar) => {
+    titlebar.addEventListener("pointerdown", onWindowDragStart);
+  });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
+}
+
+function onWindowAction(event) {
+  const id = event.currentTarget.dataset.windowId;
+  const action = event.currentTarget.dataset.windowAction;
+  const meta = getWindowMeta(id);
+  if (action === "minimize") meta.minimized = true;
+  if (action === "close") meta.closed = true;
+  if (action === "restore") {
+    meta.closed = false;
+    meta.minimized = false;
+    focusWindow(id);
+  }
+  render();
+}
+
+function onWindowDragStart(event) {
+  if (event.target.closest("button")) return;
+  const id = event.currentTarget.dataset.windowId;
+  const meta = getWindowMeta(id);
+  focusWindow(id);
+  state.draggingWindow = {
+    id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: meta.x,
+    originY: meta.y,
+  };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  window.addEventListener("pointermove", onWindowDragMove);
+  window.addEventListener("pointerup", onWindowDragEnd, { once: true });
+}
+
+function onWindowDragMove(event) {
+  const drag = state.draggingWindow;
+  if (!drag) return;
+  const meta = getWindowMeta(drag.id);
+  const desktop = document.querySelector(".desktop-surface");
+  const maxX = Math.max(0, (desktop?.clientWidth || 1200) - meta.w - 12);
+  meta.x = Math.min(maxX, Math.max(0, drag.originX + event.clientX - drag.startX));
+  meta.y = Math.max(0, drag.originY + event.clientY - drag.startY);
+  const element = document.querySelector(`[data-window-id="${drag.id}"].desktop-window`);
+  if (element) element.style.cssText = `${windowStyle(drag.id)}`;
+}
+
+function onWindowDragEnd() {
+  window.removeEventListener("pointermove", onWindowDragMove);
+  state.draggingWindow = null;
 }
 
 async function onConnect(event) {
