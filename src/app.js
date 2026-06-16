@@ -52,6 +52,7 @@ const state = {
   messages: [],
   guesses: [],
   selectedDmSeatId: "",
+  dmPickerOpen: false,
   countdown: 0,
   tickTimer: null,
   realtimeChannel: null,
@@ -253,9 +254,9 @@ function topbar() {
           <h1>Survive Large Language Metropolis</h1>
         </div>
         <div class="status-strip">
-          <span class="pill">${escapeHtml(phase)}</span>
-          <span class="pill muted">${escapeHtml(timer)}</span>
-          <span class="pill muted">${escapeHtml(gameLabel)}</span>
+          <span class="pill" id="phasePill">${escapeHtml(phase)}</span>
+          <span class="pill muted" id="timerPill">${escapeHtml(timer)}</span>
+          <span class="pill muted" id="roomPill">${escapeHtml(gameLabel)}</span>
         </div>
       </div>
     </section>
@@ -478,9 +479,7 @@ function renderGame() {
   `;
   const dmLauncherBody = `
     <div class="window-body">
-      <div class="dm-controls">
-        <select id="dmSeat">${dmOptions()}</select>
-      </div>
+      ${dmPicker()}
     </div>
   `;
   return html`
@@ -589,13 +588,33 @@ function publicMessages() {
   return state.messages.filter((message) => message.channel === "public").map(messageHtml).join("") || `<article class="message"><p>No public messages yet.</p></article>`;
 }
 
-function dmOptions() {
+function dmPicker() {
   const mine = mySeat();
-  const options = state.seats
-    .filter((seat) => seat.id !== mine?.id)
-    .map((seat) => `<option value="${seat.id}" ${seat.id === state.selectedDmSeatId ? "selected" : ""}>${escapeHtml(seat.alias)}</option>`)
-    .join("");
-  return options;
+  const seats = state.seats.filter((seat) => seat.id !== mine?.id);
+  const selected = seatById(state.selectedDmSeatId) || seats[0];
+  if (selected && !state.selectedDmSeatId) state.selectedDmSeatId = selected.id;
+  return `
+    <div class="dm-picker ${state.dmPickerOpen ? "open" : ""}">
+      <button id="dmPickerToggle" class="dm-picker-toggle" type="button">
+        <span>${escapeHtml(selected?.alias || "No identities")}</span>
+        <span>${state.dmPickerOpen ? "^" : "v"}</span>
+      </button>
+      ${
+        state.dmPickerOpen
+          ? `<div class="dm-picker-menu">
+              ${seats
+                .map(
+                  (seat) => `
+                    <button class="dm-picker-option ${seat.id === state.selectedDmSeatId ? "selected" : ""}" type="button" data-seat-id="${seat.id}">
+                      ${identityName(seat)}
+                    </button>`,
+                )
+                .join("")}
+            </div>`
+          : ""
+      }
+    </div>
+  `;
 }
 
 function directMessagesFor(otherId) {
@@ -734,13 +753,20 @@ function bindCommonEvents() {
   document.getElementById("copyCode")?.addEventListener("click", copyRoomCode);
   document.getElementById("publicForm")?.addEventListener("submit", onPublicMessage);
   document.getElementById("dmForm")?.addEventListener("submit", onDirectMessage);
-  document.getElementById("dmSeat")?.addEventListener("change", (event) => {
-    state.selectedDmSeatId = event.target.value;
-    const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
-    meta.closed = false;
-    meta.minimized = false;
-    focusWindow(`dm-${state.selectedDmSeatId}`);
+  document.getElementById("dmPickerToggle")?.addEventListener("click", () => {
+    state.dmPickerOpen = !state.dmPickerOpen;
     render();
+  });
+  document.querySelectorAll(".dm-picker-option").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedDmSeatId = button.dataset.seatId || "";
+      state.dmPickerOpen = true;
+      const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
+      meta.closed = false;
+      meta.minimized = false;
+      focusWindow(`dm-${state.selectedDmSeatId}`);
+      render();
+    });
   });
   document.querySelectorAll(".focus-dm").forEach((button) => {
     button.addEventListener("click", () => {
@@ -939,7 +965,7 @@ function startLocalTimer() {
   clearInterval(state.tickTimer);
   state.tickTimer = setInterval(async () => {
     updateCountdown();
-    render();
+    updateTimerDisplay();
     await hostMaintenance();
   }, 1000);
 }
@@ -948,6 +974,19 @@ function updateCountdown() {
   if (state.game?.status === "playing") state.countdown = secondsUntil(state.game.round_ends_at);
   else if (state.room?.status === "results") state.countdown = secondsUntil(state.room.next_game_at);
   else state.countdown = 0;
+}
+
+function updateTimerDisplay() {
+  const phase = state.game?.status || state.room?.status || state.phase;
+  let timer = "--";
+  if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
+  if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
+  const phasePill = document.getElementById("phasePill");
+  const timerPill = document.getElementById("timerPill");
+  const roomPill = document.getElementById("roomPill");
+  if (phasePill) phasePill.textContent = phase;
+  if (timerPill) timerPill.textContent = timer;
+  if (roomPill) roomPill.textContent = state.room ? `Room ${state.room.code}` : "No room";
 }
 
 async function onSaveSettings(event) {
@@ -1067,7 +1106,7 @@ async function onPublicMessage(event) {
 async function onDirectMessage(event) {
   event.preventDefault();
   const mine = mySeat();
-  const toSeatId = state.selectedDmSeatId || document.getElementById("dmSeat")?.value;
+  const toSeatId = state.selectedDmSeatId;
   const isReply = hasPriorDmWith(toSeatId);
   if (isReply && repliesFromMe().length >= 2) return;
   if (!isReply && newDmsFromMe().length >= 2) return;
