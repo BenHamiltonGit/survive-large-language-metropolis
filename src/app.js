@@ -51,6 +51,7 @@ const state = {
   seats: [],
   messages: [],
   guesses: [],
+  guessDrafts: {},
   selectedDmSeatId: "",
   dmPickerOpen: false,
   countdown: 0,
@@ -741,6 +742,7 @@ function repliesFromMe() {
 }
 
 function guessCard(seat) {
+  const draft = state.guessDrafts[seat.id] || {};
   const humanOptions = [`<option value="">No human match</option>`]
     .concat(state.participants.map((participant) => `<option value="${participant.id}">${escapeHtml(participant.display_name)}</option>`))
     .join("");
@@ -753,8 +755,15 @@ function guessCard(seat) {
       <div class="window-body">
       ${identityName(seat)}
       <div class="guess-fields">
-        <label>Type<select name="${seat.id}-kind"><option value="human">Human</option><option value="ai">AI</option></select></label>
-        <label>Bonus human match<select name="${seat.id}-human">${humanOptions}</select></label>
+        <div class="guess-type-buttons" role="group" aria-label="Choose identity type for ${escapeHtml(seat.alias)}">
+          <button class="guess-type-button ${draft.kind === "human" ? "selected" : ""}" type="button" data-seat-id="${seat.id}" data-kind="human">Human</button>
+          <button class="guess-type-button ${draft.kind === "ai" ? "selected" : ""}" type="button" data-seat-id="${seat.id}" data-kind="ai">AI</button>
+        </div>
+        ${
+          draft.kind === "human"
+            ? `<label>Bonus human match<select name="${seat.id}-human">${humanOptions}</select></label>`
+            : `<input type="hidden" name="${seat.id}-human" value="" />`
+        }
       </div>
       </div>
     </article>`;
@@ -801,10 +810,20 @@ function bindCommonEvents() {
   document.querySelectorAll("[data-window-action]").forEach((button) => {
     button.addEventListener("click", onWindowAction);
   });
+  document.querySelectorAll(".guess-type-button").forEach((button) => {
+    button.addEventListener("click", onGuessTypeClick);
+  });
   document.querySelectorAll(".desktop-window .window-titlebar").forEach((titlebar) => {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
+}
+
+function onGuessTypeClick(event) {
+  const seatId = event.currentTarget.dataset.seatId;
+  const kind = event.currentTarget.dataset.kind;
+  state.guessDrafts[seatId] = { ...(state.guessDrafts[seatId] || {}), kind };
+  render();
 }
 
 function onComposerKeydown(event) {
@@ -1158,11 +1177,16 @@ async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
 async function onSubmitGuesses(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const guesses = state.seats.map((seat) => ({
-    seatId: seat.id,
-    kind: form.get(`${seat.id}-kind`),
-    participantId: form.get(`${seat.id}-human`) || null,
-  }));
+  const missing = state.seats.find((seat) => !state.guessDrafts[seat.id]?.kind);
+  if (missing) return alert(`Choose Human or AI for ${missing.alias}.`);
+  const guesses = state.seats.map((seat) => {
+    const kind = state.guessDrafts[seat.id].kind;
+    return {
+      seatId: seat.id,
+      kind,
+      participantId: kind === "human" ? form.get(`${seat.id}-human`) || null : null,
+    };
+  });
   const { error } = await supabase.from("guesses").insert({
     game_id: state.game.id,
     participant_id: state.participant.id,

@@ -715,6 +715,22 @@ label {
   gap: 10px;
 }
 
+.guess-type-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.guess-type-button {
+  background: #efe3c6;
+}
+
+.guess-type-button.selected {
+  background: var(--accent-2);
+  box-shadow: inset 2px 2px 0 rgba(31, 27, 22, 0.25);
+  transform: translate(1px, 1px);
+}
+
 .guess-submit {
   grid-column: 1 / -1;
   justify-self: end;

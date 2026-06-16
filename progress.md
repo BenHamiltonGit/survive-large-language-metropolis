@@ -23,6 +23,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Replaced the DM launcher native select with a custom persistent picker and stopped re-rendering the whole app every second for timer updates, so the DM menu is not constantly collapsed by countdown/message refreshes.
 - During active gameplay, the large site title is replaced by a compact game HUD with a much larger round timer.
 - Composer textareas now submit on Enter and keep Shift+Enter for multiline text.
+- Guessing cards now start unselected with explicit Human/AI buttons; the bonus human-match dropdown only appears when Human is chosen, and submit requires every card to be labeled.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
