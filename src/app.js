@@ -138,7 +138,7 @@ function topbar() {
       <div class="topbar-main">
         <div>
           <p class="eyebrow">Survive Large Language Metropolis</p>
-          <h1>Bot or Not</h1>
+          <h1>Survive Large Language Metropolis</h1>
         </div>
         <div class="status-strip">
           <span class="pill">${escapeHtml(phase)}</span>
