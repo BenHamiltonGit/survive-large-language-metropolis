@@ -179,7 +179,7 @@ function renderConnect() {
         <h2>Create a room, send the code, read the room.</h2>
         <p>
           Online rooms sync through Supabase Realtime. Each game anonymizes everyone,
-          adds AI seats, limits each message by character count, then scores only your own final guesses.
+          adds a chosen number of AI's, limits each message by character count, then scores only your own final guesses.
         </p>
         </div>
       </div>
@@ -223,7 +223,7 @@ function renderLobby() {
         <p class="eyebrow">Lobby</p>
         <h2>Send the room code.</h2>
         <p>
-          Players join with the code or link. The host sets AI seats, round count,
+          Players join with the code or link. The host sets the number of AI's, round count,
           round length, and message character limit.
         </p>
         <div class="room-code">${escapeHtml(state.room.code)}</div>
@@ -256,7 +256,7 @@ function renderLobby() {
           ? html`
               <form id="settingsForm">
                 <div class="form-grid">
-                  <label>AI seats<input name="aiCount" type="number" min="1" max="8" value="${s.aiCount}" /></label>
+                  <label>Number of AI's<input name="aiCount" type="number" min="1" max="8" value="${s.aiCount}" /></label>
                   <label>Rounds<input name="roundCount" type="number" min="1" max="8" value="${s.roundCount}" /></label>
                   <label>Seconds per round<input name="roundSeconds" type="number" min="10" max="180" value="${s.roundSeconds}" /></label>
                   <label>Character limit<input name="charLimit" type="number" min="40" max="280" value="${s.charLimit}" /></label>
