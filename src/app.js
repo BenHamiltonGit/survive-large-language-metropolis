@@ -59,6 +59,9 @@ const state = {
   aiLockScope: "",
   isStartingGame: false,
   lobbyNotice: "",
+  inviteCode: "",
+  inviteRoom: null,
+  inviteError: "",
   windowMeta: {},
   nextWindowZ: 10,
   draggingWindow: null,
@@ -263,6 +266,8 @@ function render() {
   const view =
     state.phase === "connect"
       ? renderConnect()
+      : state.phase === "invite"
+        ? renderInviteJoin()
       : state.room?.status === "lobby"
         ? renderLobby()
         : state.room?.status === "guessing"
@@ -273,6 +278,42 @@ function render() {
 
   app.innerHTML = html`<main class="app-shell">${topbar()}${view}</main>`;
   bindCommonEvents();
+}
+
+function renderInviteJoin() {
+  return html`
+    <section class="connect-view invite-view">
+      <div class="intro-copy window intro-window">
+        <div class="window-titlebar">
+          <span>INVITE_FOUND.URL</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body">
+          <p class="eyebrow">Join room</p>
+          <h2>Enter your name.</h2>
+          <p>You were invited to room ${escapeHtml(state.inviteCode)}. Pick the name other players will see in the lobby.</p>
+          <div class="room-code">${escapeHtml(state.inviteCode)}</div>
+        </div>
+      </div>
+      <form class="panel window modal-window" id="inviteJoinForm">
+        <div class="window-titlebar">
+          <span>JOIN_ROOM.DLG</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body form-body">
+          ${state.inviteError ? `<div class="notice">${escapeHtml(state.inviteError)}</div>` : ""}
+          <label>
+            Your name
+            <input name="name" maxlength="32" value="Ben" required autofocus />
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit" ${state.inviteError ? "disabled" : ""}>Join room</button>
+            <button class="secondary" id="cancelInviteJoin" type="button">Not now</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  `;
 }
 
 function renderConnect() {
@@ -685,6 +726,8 @@ function guessCard(seat) {
 
 function bindCommonEvents() {
   document.getElementById("connectForm")?.addEventListener("submit", onConnect);
+  document.getElementById("inviteJoinForm")?.addEventListener("submit", onInviteJoin);
+  document.getElementById("cancelInviteJoin")?.addEventListener("click", cancelInviteJoin);
   document.getElementById("settingsForm")?.addEventListener("submit", onSaveSettings);
   document.getElementById("startGame")?.addEventListener("click", startGame);
   document.getElementById("copyLink")?.addEventListener("click", copyLink);
@@ -765,6 +808,26 @@ function onWindowDragMove(event) {
 function onWindowDragEnd() {
   window.removeEventListener("pointermove", onWindowDragMove);
   state.draggingWindow = null;
+}
+
+async function onInviteJoin(event) {
+  event.preventDefault();
+  if (state.inviteError) return;
+  const form = new FormData(event.currentTarget);
+  const displayName = String(form.get("name") || "").trim().slice(0, 32);
+  if (!displayName) return;
+  await joinRoom(state.inviteCode, displayName);
+}
+
+function cancelInviteJoin() {
+  state.phase = "connect";
+  state.inviteCode = "";
+  state.inviteRoom = null;
+  state.inviteError = "";
+  const url = new URL(window.location.href);
+  url.searchParams.delete("room");
+  window.history.replaceState({}, "", url);
+  render();
 }
 
 async function onConnect(event) {
@@ -1203,11 +1266,40 @@ async function generateAiText(aiSeat) {
 async function boot() {
   if (supabaseReady) {
     const code = new URLSearchParams(window.location.search).get("room");
-    if (code && local.participantId) {
-      await loadRoom(code.toUpperCase());
+    if (code) {
+      await bootInviteLink(code.toUpperCase());
       return;
     }
   }
+  render();
+}
+
+async function bootInviteLink(code) {
+  const { data: room, error } = await supabase.from("rooms").select("*").eq("code", code).single();
+  state.inviteCode = code;
+  if (error || !room) {
+    state.phase = "invite";
+    state.inviteError = "Room not found.";
+    render();
+    return;
+  }
+
+  if (local.participantId) {
+    const { data: participant } = await supabase
+      .from("participants")
+      .select("id")
+      .eq("id", local.participantId)
+      .eq("room_id", room.id)
+      .maybeSingle();
+    if (participant) {
+      await loadRoom(code);
+      return;
+    }
+  }
+
+  state.inviteRoom = room;
+  state.phase = "invite";
+  state.inviteError = room.status === "lobby" ? "" : "That room is already in progress.";
   render();
 }
 

@@ -189,6 +189,18 @@ h3 {
   padding-top: 34px;
 }
 
+.invite-view {
+  align-items: center;
+}
+
+.modal-window {
+  transform: rotate(0.2deg);
+}
+
+.modal-window .window-titlebar {
+  background: var(--blue);
+}
+
 .intro-window {
   transform: rotate(-0.35deg);
 }
