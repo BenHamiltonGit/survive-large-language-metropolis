@@ -185,6 +185,7 @@ function defaultWindowMeta(id) {
     identities: { x: 310, y: 14, w: 620, z: 2 },
     public: { x: 310, y: 126, w: 520, z: 4 },
     dmLauncher: { x: 850, y: 126, w: 370, z: 5 },
+    labels: { x: 14, y: 390, w: 280, z: 7 },
   };
   return defaults[id] || { x: 850 + (dmIndex % 2) * 24, y: 246 + dmIndex * 34, w: 370, z: 6 + dmIndex };
 }
@@ -234,6 +235,7 @@ function windowTitle(id) {
   if (id === "identities") return "IDENTITIES.DIR";
   if (id === "public") return "PUBLIC_BOARD.EXE";
   if (id === "dmLauncher") return "DM_LAUNCHER.EXE";
+  if (id === "labels") return "LABEL_NOTES.EXE";
   if (id.startsWith("dm-")) return `${seatById(id.slice(3))?.alias || "DM"}.dm`;
   return id;
 }
@@ -502,6 +504,12 @@ function renderGame() {
       ${dmPicker()}
     </div>
   `;
+  const labelsBody = `
+    <div class="window-body label-notes">
+      <div class="section-title"><span>Draft labels</span></div>
+      ${state.seats.map((entry) => labelDraftRow(entry)).join("")}
+    </div>
+  `;
   return html`
     <section class="game-view">
       <div class="desktop-surface">
@@ -509,6 +517,7 @@ function renderGame() {
         ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
         ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
         ${desktopWindow("dmLauncher", "DM_LAUNCHER.EXE", dmLauncherBody, "dm-launcher")}
+        ${desktopWindow("labels", "LABEL_NOTES.EXE", labelsBody, "labels-window")}
         ${dmWindows(newDmLeft, replyLeft)}
         <div class="desktop-taskbar">${taskbarWindows()}</div>
       </div>
@@ -747,10 +756,6 @@ function repliesFromMe() {
 }
 
 function guessCard(seat) {
-  const draft = state.guessDrafts[seat.id] || {};
-  const humanOptions = [`<option value="">No human match</option>`]
-    .concat(state.participants.map((participant) => `<option value="${participant.id}">${escapeHtml(participant.display_name)}</option>`))
-    .join("");
   return `
     <article class="guess-card window">
       <div class="window-titlebar">
@@ -758,6 +763,23 @@ function guessCard(seat) {
         <span class="window-controls">_ [] X</span>
       </div>
       <div class="window-body">
+      ${labelDraftRow(seat)}
+      </div>
+    </article>`;
+}
+
+function labelDraftRow(seat) {
+  const draft = state.guessDrafts[seat.id] || {};
+  const humanOptions = [`<option value="">No human match</option>`]
+    .concat(
+      state.participants.map(
+        (participant) =>
+          `<option value="${participant.id}" ${participant.id === draft.participantId ? "selected" : ""}>${escapeHtml(participant.display_name)}</option>`,
+      ),
+    )
+    .join("");
+  return `
+    <div class="label-draft-row">
       ${identityName(seat)}
       <div class="guess-fields">
         <div class="guess-type-buttons" role="group" aria-label="Choose identity type for ${escapeHtml(seat.alias)}">
@@ -766,12 +788,11 @@ function guessCard(seat) {
         </div>
         ${
           draft.kind === "human"
-            ? `<label>Bonus human match<select name="${seat.id}-human">${humanOptions}</select></label>`
+            ? `<label>Bonus human match<select class="guess-human-select" name="${seat.id}-human" data-seat-id="${seat.id}">${humanOptions}</select></label>`
             : `<input type="hidden" name="${seat.id}-human" value="" />`
         }
       </div>
-      </div>
-    </article>`;
+    </div>`;
 }
 
 function bindCommonEvents() {
@@ -818,6 +839,9 @@ function bindCommonEvents() {
   document.querySelectorAll(".guess-type-button").forEach((button) => {
     button.addEventListener("click", onGuessTypeClick);
   });
+  document.querySelectorAll(".guess-human-select").forEach((select) => {
+    select.addEventListener("change", onGuessHumanChange);
+  });
   document.querySelectorAll(".desktop-window .window-titlebar").forEach((titlebar) => {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
@@ -827,8 +851,21 @@ function bindCommonEvents() {
 function onGuessTypeClick(event) {
   const seatId = event.currentTarget.dataset.seatId;
   const kind = event.currentTarget.dataset.kind;
-  state.guessDrafts[seatId] = { ...(state.guessDrafts[seatId] || {}), kind };
+  state.guessDrafts[seatId] = {
+    ...(state.guessDrafts[seatId] || {}),
+    kind,
+    participantId: kind === "human" ? state.guessDrafts[seatId]?.participantId || "" : null,
+  };
   render();
+}
+
+function onGuessHumanChange(event) {
+  const seatId = event.currentTarget.dataset.seatId;
+  state.guessDrafts[seatId] = {
+    ...(state.guessDrafts[seatId] || {}),
+    kind: "human",
+    participantId: event.currentTarget.value || "",
+  };
 }
 
 function onComposerKeydown(event) {
@@ -1193,7 +1230,7 @@ async function onSubmitGuesses(event) {
     return {
       seatId: seat.id,
       kind,
-      participantId: kind === "human" ? form.get(`${seat.id}-human`) || null : null,
+      participantId: kind === "human" ? state.guessDrafts[seat.id].participantId || form.get(`${seat.id}-human`) || null : null,
     };
   });
   const { error } = await supabase.from("guesses").insert({

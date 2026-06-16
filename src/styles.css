@@ -540,6 +540,27 @@ label {
   background: #fff8e8;
 }
 
+.labels-window {
+  max-height: 360px;
+}
+
+.label-notes {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.label-draft-row {
+  border: 2px solid var(--line);
+  background: #fff3c7;
+  padding: 8px;
+}
+
+.label-draft-row + .label-draft-row {
+  margin-top: 0;
+}
+
 .window-titlebar {
   display: flex;
   align-items: center;
@@ -727,6 +748,10 @@ label {
 
 .guess-card .identity-name {
   margin-bottom: 12px;
+}
+
+.label-notes .identity-name {
+  margin-bottom: 8px;
 }
 
 .guess-fields {
