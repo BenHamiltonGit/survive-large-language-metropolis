@@ -433,6 +433,13 @@ label {
   box-shadow: 3px 3px 0 var(--line);
 }
 
+.identity-button {
+  width: 100%;
+  min-height: 74px;
+  background: var(--paper-2);
+  text-align: left;
+}
+
 .avatar {
   display: inline-flex;
   align-items: center;
@@ -461,7 +468,7 @@ label {
 
 .desktop-surface {
   position: relative;
-  min-height: 780px;
+  min-height: 840px;
   border: 3px solid var(--line);
   background:
     linear-gradient(135deg, rgba(255, 138, 0, 0.08) 25%, transparent 25%) 0 0 / 18px 18px,
@@ -483,48 +490,6 @@ label {
 
 .board-window {
   min-height: 520px;
-}
-
-.dm-launcher {
-  min-height: 86px;
-}
-
-.dm-picker {
-  position: relative;
-}
-
-.dm-picker-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 38px;
-  background: var(--paper-2);
-  text-align: left;
-}
-
-.dm-picker-menu {
-  display: grid;
-  gap: 6px;
-  max-height: 260px;
-  margin-top: 8px;
-  overflow: auto;
-  border: 2px solid var(--line);
-  background: #fffaf0;
-  padding: 8px;
-  box-shadow: inset 2px 2px 0 rgba(31, 27, 22, 0.18);
-}
-
-.dm-picker-option {
-  display: block;
-  width: 100%;
-  min-height: 42px;
-  background: #efe3c6;
-  text-align: left;
-}
-
-.dm-picker-option.selected {
-  background: var(--accent-2);
 }
 
 .dm-window {

@@ -54,7 +54,6 @@ const state = {
   guesses: [],
   guessDrafts: {},
   selectedDmSeatId: "",
-  dmPickerOpen: false,
   countdown: 0,
   tickTimer: null,
   realtimeChannel: null,
@@ -182,12 +181,11 @@ function defaultWindowMeta(id) {
   const dmIndex = id.startsWith("dm-") ? Math.max(0, state.seats.findIndex((seat) => `dm-${seat.id}` === id)) : 0;
   const defaults = {
     monitor: { x: 14, y: 14, w: 280, z: 3 },
-    identities: { x: 310, y: 14, w: 620, z: 2 },
-    public: { x: 310, y: 126, w: 520, z: 4 },
-    dmLauncher: { x: 850, y: 126, w: 370, z: 5 },
-    labels: { x: 14, y: 390, w: 280, z: 7 },
+    labels: { x: 14, y: 374, w: 280, z: 4 },
+    public: { x: 310, y: 14, w: 570, z: 5 },
+    identities: { x: 900, y: 14, w: 360, z: 3 },
   };
-  return defaults[id] || { x: 850 + (dmIndex % 2) * 24, y: 246 + dmIndex * 34, w: 370, z: 6 + dmIndex };
+  return defaults[id] || { x: 900 + (dmIndex % 2) * 22, y: 290 + dmIndex * 36, w: 360, z: 7 + dmIndex };
 }
 
 function getWindowMeta(id) {
@@ -234,7 +232,6 @@ function windowTitle(id) {
   if (id === "monitor") return "PLAYER_MONITOR.SYS";
   if (id === "identities") return "IDENTITIES.DIR";
   if (id === "public") return "PUBLIC_BOARD.EXE";
-  if (id === "dmLauncher") return "DM_LAUNCHER.EXE";
   if (id === "labels") return "LABEL_NOTES.EXE";
   if (id.startsWith("dm-")) return `${seatById(id.slice(3))?.alias || "DM"}.dm`;
   return id;
@@ -488,7 +485,16 @@ function renderGame() {
       </div>
     </div>
   `;
-  const identitiesBody = `<div class="identity-rail window-body">${state.seats.map((entry) => `<article class="identity">${identityName(entry)}<div class="identity-meta">Anonymous seat</div></article>`).join("")}</div>`;
+  const identitiesBody = `<div class="identity-rail window-body">${state.seats
+    .filter((entry) => entry.id !== seat?.id)
+    .map(
+      (entry) => `
+        <button class="identity identity-button" type="button" data-seat-id="${entry.id}">
+          ${identityName(entry)}
+          <div class="identity-meta">Click to DM</div>
+        </button>`,
+    )
+    .join("")}</div>`;
   const publicBody = `
     <div class="message-list">${publicMessages()}</div>
     <form id="publicForm" class="composer">
@@ -498,11 +504,6 @@ function renderGame() {
         <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
       </div>
     </form>
-  `;
-  const dmLauncherBody = `
-    <div class="window-body">
-      ${dmPicker()}
-    </div>
   `;
   const labelsBody = `
     <div class="window-body label-notes">
@@ -516,7 +517,6 @@ function renderGame() {
         ${desktopWindow("monitor", "PLAYER_MONITOR.SYS", monitorBody, "monitor-window")}
         ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
         ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
-        ${desktopWindow("dmLauncher", "DM_LAUNCHER.EXE", dmLauncherBody, "dm-launcher")}
         ${desktopWindow("labels", "LABEL_NOTES.EXE", labelsBody, "labels-window")}
         ${dmWindows(newDmLeft, replyLeft)}
         <div class="desktop-taskbar">${taskbarWindows()}</div>
@@ -620,35 +620,6 @@ function publicMessages() {
   return state.messages.filter((message) => message.channel === "public").map(messageHtml).join("") || `<article class="message"><p>No public messages yet.</p></article>`;
 }
 
-function dmPicker() {
-  const mine = mySeat();
-  const seats = state.seats.filter((seat) => seat.id !== mine?.id);
-  const selected = seatById(state.selectedDmSeatId) || seats[0];
-  if (selected && !state.selectedDmSeatId) state.selectedDmSeatId = selected.id;
-  return `
-    <div class="dm-picker ${state.dmPickerOpen ? "open" : ""}">
-      <button id="dmPickerToggle" class="dm-picker-toggle" type="button">
-        <span>${escapeHtml(selected?.alias || "No identities")}</span>
-        <span>${state.dmPickerOpen ? "^" : "v"}</span>
-      </button>
-      ${
-        state.dmPickerOpen
-          ? `<div class="dm-picker-menu">
-              ${seats
-                .map(
-                  (seat) => `
-                    <button class="dm-picker-option ${seat.id === state.selectedDmSeatId ? "selected" : ""}" type="button" data-seat-id="${seat.id}">
-                      ${identityName(seat)}
-                    </button>`,
-                )
-                .join("")}
-            </div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
 function directMessagesFor(otherId) {
   const mine = mySeat();
   const messages = state.messages.filter(
@@ -668,9 +639,7 @@ function dmWindows(newDmLeft, replyLeft) {
       .filter((message) => message.channel === "direct" && (message.from_seat_id === mine.id || message.to_seat_id === mine.id))
       .map((message) => (message.from_seat_id === mine.id ? message.to_seat_id : message.from_seat_id)),
   );
-  const defaultSeat = state.selectedDmSeatId || state.seats.find((seat) => seat.id !== mine.id)?.id;
-  if (defaultSeat) threadSeatIds.add(defaultSeat);
-  state.selectedDmSeatId = defaultSeat || "";
+  if (state.selectedDmSeatId) threadSeatIds.add(state.selectedDmSeatId);
 
   return [...threadSeatIds]
     .filter(Boolean)
@@ -808,30 +777,11 @@ function bindCommonEvents() {
   document.querySelectorAll(".composer textarea").forEach((textarea) => {
     textarea.addEventListener("keydown", onComposerKeydown);
   });
-  document.getElementById("dmPickerToggle")?.addEventListener("click", () => {
-    state.dmPickerOpen = !state.dmPickerOpen;
-    render();
-  });
-  document.querySelectorAll(".dm-picker-option").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.selectedDmSeatId = button.dataset.seatId || "";
-      state.dmPickerOpen = true;
-      const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
-      meta.closed = false;
-      meta.minimized = false;
-      focusWindow(`dm-${state.selectedDmSeatId}`);
-      render();
-    });
+  document.querySelectorAll(".identity-button").forEach((button) => {
+    button.addEventListener("click", () => openDmWindow(button.dataset.seatId || ""));
   });
   document.querySelectorAll(".focus-dm").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.selectedDmSeatId = button.dataset.seatId || "";
-      const meta = getWindowMeta(`dm-${state.selectedDmSeatId}`);
-      meta.closed = false;
-      meta.minimized = false;
-      focusWindow(`dm-${state.selectedDmSeatId}`);
-      render();
-    });
+    button.addEventListener("click", () => openDmWindow(button.dataset.seatId || ""));
   });
   document.querySelectorAll("[data-window-action]").forEach((button) => {
     button.addEventListener("click", onWindowAction);
@@ -846,6 +796,16 @@ function bindCommonEvents() {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
+}
+
+function openDmWindow(seatId) {
+  if (!seatId) return;
+  state.selectedDmSeatId = seatId;
+  const meta = getWindowMeta(`dm-${seatId}`);
+  meta.closed = false;
+  meta.minimized = false;
+  focusWindow(`dm-${seatId}`);
+  render();
 }
 
 function onGuessTypeClick(event) {
