@@ -60,6 +60,7 @@ const state = {
   aiSendLocks: new Set(),
   aiLockScope: "",
   isStartingGame: false,
+  isAutoSubmittingGuesses: false,
   lobbyNotice: "",
   inviteCode: "",
   inviteRoom: null,
@@ -1020,6 +1021,9 @@ function startLocalTimer() {
   state.tickTimer = setInterval(async () => {
     updateCountdown();
     updateTimerDisplay();
+    if (state.game?.status === "guessing" && state.countdown <= 0) {
+      await autoSubmitGuesses();
+    }
     await hostMaintenance();
   }, 1000);
 }
@@ -1197,20 +1201,39 @@ async function onSubmitGuesses(event) {
   const form = new FormData(event.currentTarget);
   const missing = state.seats.find((seat) => !state.guessDrafts[seat.id]?.kind);
   if (missing) return alert(`Choose Human or AI for ${missing.alias}.`);
-  const guesses = state.seats.map((seat) => {
+  await submitGuessPayload(buildGuessPayload(form, false));
+  await refreshAll();
+}
+
+function buildGuessPayload(form, allowBlanks) {
+  return state.seats.map((seat) => {
     const kind = state.guessDrafts[seat.id].kind;
+    const finalKind = kind || (allowBlanks ? "unanswered" : "");
     return {
       seatId: seat.id,
-      kind,
-      participantId: kind === "human" ? state.guessDrafts[seat.id].participantId || form.get(`${seat.id}-human`) || null : null,
+      kind: finalKind,
+      participantId:
+        finalKind === "human" ? state.guessDrafts[seat.id]?.participantId || form?.get(`${seat.id}-human`) || null : null,
     };
   });
-  const { error } = await supabase.from("guesses").insert({
+}
+
+async function submitGuessPayload(guesses) {
+  const { error } = await supabase.from("guesses").upsert({
     game_id: state.game.id,
     participant_id: state.participant.id,
     guesses,
-  });
+  }, { onConflict: "game_id,participant_id" });
   if (error) alert(error.message);
+  return !error;
+}
+
+async function autoSubmitGuesses() {
+  if (state.isAutoSubmittingGuesses || !state.game || !state.participant) return;
+  if (state.guesses.some((guess) => guess.participant_id === state.participant.id)) return;
+  state.isAutoSubmittingGuesses = true;
+  await submitGuessPayload(buildGuessPayload(null, true));
+  state.isAutoSubmittingGuesses = false;
   await refreshAll();
 }
 

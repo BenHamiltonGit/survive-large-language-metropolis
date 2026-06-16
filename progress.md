@@ -29,6 +29,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Removed `DM_LAUNCHER.EXE`; identities in `IDENTITIES.DIR` now open/focus their DM window when clicked. Default live-game layout was adjusted to leave room for monitor, labels, public board, identities, and opened DMs.
 - Gameplay HUD now separates the round label from the countdown; the timer is fixed-width with tabular digits so changing seconds do not move the round text.
 - Guessing/final-label screen now also uses the compact timer HUD instead of the large site title.
+- When the guessing timer hits zero, each client auto-submits its current draft guesses; blank identities are submitted as `unanswered` and score wrong.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
