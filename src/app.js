@@ -130,15 +130,21 @@ function topbar() {
   if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
   if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
   return html`
-    <section class="topbar">
-      <div>
-        <p class="eyebrow">Survive Large Language Metropolis</p>
-        <h1>Bot or Not</h1>
+    <section class="topbar window">
+      <div class="window-titlebar topbar-titlebar">
+        <span>SLLM_OS.EXE</span>
+        <span class="window-controls">_ [] X</span>
       </div>
-      <div class="status-strip">
-        <span class="pill">${escapeHtml(phase)}</span>
-        <span class="pill muted">${escapeHtml(timer)}</span>
-        <span class="pill muted">${escapeHtml(gameLabel)}</span>
+      <div class="topbar-main">
+        <div>
+          <p class="eyebrow">Survive Large Language Metropolis</p>
+          <h1>Bot or Not</h1>
+        </div>
+        <div class="status-strip">
+          <span class="pill">${escapeHtml(phase)}</span>
+          <span class="pill muted">${escapeHtml(timer)}</span>
+          <span class="pill muted">${escapeHtml(gameLabel)}</span>
+        </div>
       </div>
     </section>
   `;
@@ -164,14 +170,25 @@ function renderConnect() {
   const roomParam = new URLSearchParams(window.location.search).get("room") || "";
   return html`
     <section class="connect-view">
-      <div class="intro-copy">
+      <div class="intro-copy window intro-window">
+        <div class="window-titlebar">
+          <span>ROOM_WIZARD.TXT</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body">
         <h2>Create a room, send the code, read the room.</h2>
         <p>
           Online rooms sync through Supabase Realtime. Each game anonymizes everyone,
           adds AI seats, limits each message by character count, then scores only your own final guesses.
         </p>
+        </div>
       </div>
-      <form class="panel" id="connectForm">
+      <form class="panel window" id="connectForm">
+        <div class="window-titlebar">
+          <span>CONNECT.DLG</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body form-body">
         ${!supabaseReady
           ? `<div class="notice">Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY before running multiplayer.</div>`
           : ""}
@@ -187,6 +204,7 @@ function renderConnect() {
           <button class="primary" name="intent" value="create" ${!supabaseReady ? "disabled" : ""}>Create room</button>
           <button class="secondary" name="intent" value="join" ${!supabaseReady ? "disabled" : ""}>Join room</button>
         </div>
+        </div>
       </form>
     </section>
   `;
@@ -196,7 +214,12 @@ function renderLobby() {
   const s = settings();
   return html`
     <section class="lobby-view">
-      <div class="intro-copy">
+      <div class="intro-copy window intro-window">
+        <div class="window-titlebar">
+          <span>INVITE_PANEL.INI</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body">
         <p class="eyebrow">Lobby</p>
         <h2>Send the room code.</h2>
         <p>
@@ -207,8 +230,14 @@ function renderLobby() {
         <div class="actions" style="margin-top:16px">
           <button id="copyLink" class="secondary">Copy invite link</button>
         </div>
+        </div>
       </div>
-      <section class="panel">
+      <section class="panel window">
+        <div class="window-titlebar">
+          <span>ROOM_SETTINGS.EXE</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body form-body">
         <div>
           <div class="section-title"><span>Players</span></div>
           <div class="player-list">
@@ -239,6 +268,7 @@ function renderLobby() {
               </form>
             `
           : `<div class="notice">Waiting for the host to start.</div>`}
+        </div>
       </section>
     </section>
   `;
@@ -252,7 +282,12 @@ function renderGame() {
   const replyLeft = Math.max(0, 2 - repliesFromMe().length);
   return html`
     <section class="game-view">
-      <aside class="side-panel">
+      <aside class="side-panel window">
+        <div class="window-titlebar">
+          <span>PLAYER_MONITOR.SYS</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body">
         <div class="panel-section">
           <div class="section-title"><span>You are</span></div>
           <div class="identity">${seat ? identityName(seat) : "No seat yet"}</div>
@@ -269,6 +304,7 @@ function renderGame() {
         <div class="panel-section">
           <div class="section-title"><span>Scoreboard</span></div>
           <div class="scoreboard">${scoreboardRows()}</div>
+        </div>
         </div>
       </aside>
       <section class="play-area">
@@ -310,12 +346,18 @@ function renderGuessing() {
   const submitted = state.guesses.some((guess) => guess.participant_id === state.participant?.id);
   return html`
     <section class="guess-view">
-      <div class="guess-head">
-        <div>
+      <div class="guess-head window">
+        <div class="window-titlebar">
+          <span>FINAL_READ.EXE</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body header-window-body">
+          <div>
           <p class="eyebrow">Final read</p>
           <h2>Label every identity</h2>
+          </div>
+          <span class="pill muted">${state.guesses.length}/${state.participants.length} submitted</span>
         </div>
-        <span class="pill muted">${state.guesses.length}/${state.participants.length} submitted</span>
       </div>
       ${submitted
         ? `<div class="notice">Your guesses are in. Waiting for everyone else.</div>`
@@ -332,12 +374,18 @@ function renderResults() {
   const winners = state.participants.filter((participant) => participant.last_points === winnerPoints);
   return html`
     <section class="results-view">
-      <div class="results-head">
-        <div>
+      <div class="results-head window">
+        <div class="window-titlebar">
+          <span>SCORE_REVEAL.LOG</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body header-window-body">
+          <div>
           <p class="eyebrow">Results</p>
           <h2>${escapeHtml(winners.map((winner) => winner.display_name).join(", ") || "No winner")} won</h2>
+          </div>
+          <div class="countdown">Next game in ${state.countdown}</div>
         </div>
-        <div class="countdown">Next game in ${state.countdown}</div>
       </div>
       <div class="results-grid">
         ${state.seats
@@ -346,10 +394,10 @@ function renderResults() {
               seat.kind === "human"
                 ? `Human: ${escapeHtml(participantById(seat.participant_id)?.display_name || "Unknown")}`
                 : `AI, mimicking ${escapeHtml(participantById(seat.mimic_participant_id)?.display_name || "Unknown")}`;
-            return `<article class="reveal-card"><h3>${identityName(seat)}</h3><p>${truth}</p></article>`;
+            return `<article class="reveal-card window"><div class="window-titlebar"><span>${escapeHtml(seat.alias)}.ID</span><span class="window-controls">_ [] X</span></div><div class="window-body"><h3>${identityName(seat)}</h3><p>${truth}</p></div></article>`;
           })
           .join("")}
-        <article class="reveal-card"><h3>Table standings</h3>${scoreboardRows(true)}</article>
+        <article class="reveal-card window"><div class="window-titlebar"><span>STANDINGS.TXT</span><span class="window-controls">_ [] X</span></div><div class="window-body"><h3>Table standings</h3>${scoreboardRows(true)}</div></article>
       </div>
     </section>
   `;
@@ -507,11 +555,17 @@ function guessCard(seat) {
     .concat(state.participants.map((participant) => `<option value="${participant.id}">${escapeHtml(participant.display_name)}</option>`))
     .join("");
   return `
-    <article class="guess-card">
+    <article class="guess-card window">
+      <div class="window-titlebar">
+        <span>${escapeHtml(seat.alias)}.GUESS</span>
+        <span class="window-controls">_ [] X</span>
+      </div>
+      <div class="window-body">
       ${identityName(seat)}
       <div class="guess-fields">
         <label>Type<select name="${seat.id}-kind"><option value="human">Human</option><option value="ai">AI</option></select></label>
         <label>Bonus human match<select name="${seat.id}-human">${humanOptions}</select></label>
+      </div>
       </div>
     </article>`;
 }

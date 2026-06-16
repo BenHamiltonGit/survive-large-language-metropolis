@@ -13,6 +13,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Set `OPENAI_API_KEY` as a Supabase Edge Function secret.
 - Live Edge Function smoke test reached OpenAI successfully, but OpenAI returned a quota/billing error.
 - Browser AI flow now invokes `ai-turn` first and falls back to local mock messages if the Edge Function fails.
+- Completed a full retro desktop UI pass across connect, lobby, gameplay, guessing, and results screens. All major surfaces now use the same chunky window/titlebar style, and the wording says character limit instead of message limit.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
