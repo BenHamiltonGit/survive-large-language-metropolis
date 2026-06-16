@@ -265,6 +265,12 @@ label {
   line-height: 1.45;
 }
 
+.notice.compact {
+  margin-top: 12px;
+  padding: 9px 10px;
+  font-size: 0.86rem;
+}
+
 .room-code {
   display: inline-flex;
   align-items: center;
@@ -277,6 +283,49 @@ label {
   font-size: 1.35rem;
   font-weight: 950;
   letter-spacing: 0.12em;
+}
+
+.invite-box {
+  margin-top: 16px;
+}
+
+.invite-box input[readonly] {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.lobby-actions {
+  margin-top: 12px;
+}
+
+.lobby-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lobby-stats div {
+  min-height: 68px;
+  border: 2px solid var(--line);
+  background: #fff3c7;
+  padding: 9px;
+  box-shadow: 2px 2px 0 var(--line);
+}
+
+.lobby-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lobby-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.8rem;
+  line-height: 1;
 }
 
 .player-list,
@@ -620,5 +669,9 @@ label {
 
   h2 {
     font-size: 2.15rem;
+  }
+
+  .lobby-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -57,6 +57,8 @@ const state = {
   realtimeChannel: null,
   aiSendLocks: new Set(),
   aiLockScope: "",
+  isStartingGame: false,
+  lobbyNotice: "",
 };
 
 const app = document.getElementById("app");
@@ -145,7 +147,26 @@ function seatName(id) {
 function copyLink() {
   const url = new URL(window.location.href);
   url.searchParams.set("room", state.room.code);
-  navigator.clipboard?.writeText(url.toString());
+  copyText(url.toString(), "Invite link copied.");
+}
+
+function copyRoomCode() {
+  copyText(state.room.code, "Room code copied.");
+}
+
+function copyText(value, message) {
+  navigator.clipboard?.writeText(value);
+  state.lobbyNotice = message;
+  render();
+}
+
+function lobbySummary() {
+  const s = settings();
+  const humanCount = state.participants.length;
+  const totalSeats = humanCount + s.aiCount;
+  const canStart = humanCount >= 2 && !state.isStartingGame;
+  const startReason = humanCount < 2 ? "Waiting for at least 2 human players." : "Ready to start.";
+  return { ...s, humanCount, totalSeats, canStart, startReason };
 }
 
 function topbar() {
@@ -236,7 +257,9 @@ function renderConnect() {
 }
 
 function renderLobby() {
-  const s = settings();
+  const summary = lobbySummary();
+  const inviteUrl = new URL(window.location.href);
+  inviteUrl.searchParams.set("room", state.room.code);
   return html`
     <section class="lobby-view">
       <div class="intro-copy window intro-window">
@@ -252,9 +275,14 @@ function renderLobby() {
           round length, and message character limit.
         </p>
         <div class="room-code">${escapeHtml(state.room.code)}</div>
-        <div class="actions" style="margin-top:16px">
+        <div class="invite-box">
+          <label>Invite link<input readonly value="${escapeHtml(inviteUrl.toString())}" /></label>
+        </div>
+        <div class="actions lobby-actions">
+          <button id="copyCode" class="secondary">Copy room code</button>
           <button id="copyLink" class="secondary">Copy invite link</button>
         </div>
+        ${state.lobbyNotice ? `<div class="notice compact">${escapeHtml(state.lobbyNotice)}</div>` : ""}
         </div>
       </div>
       <section class="panel window">
@@ -263,6 +291,12 @@ function renderLobby() {
           <span class="window-controls">_ [] X</span>
         </div>
         <div class="window-body form-body">
+        <div class="lobby-stats">
+          <div><span>Humans</span><strong>${summary.humanCount}</strong></div>
+          <div><span>AI's</span><strong>${summary.aiCount}</strong></div>
+          <div><span>Total identities</span><strong>${summary.totalSeats}</strong></div>
+          <div><span>Rounds</span><strong>${summary.roundCount}</strong></div>
+        </div>
         <div>
           <div class="section-title"><span>Players</span></div>
           <div class="player-list">
@@ -271,7 +305,7 @@ function renderLobby() {
                 (participant) => `
                   <div class="player-row">
                     <strong>${escapeHtml(participant.display_name)}</strong>
-                    <span>${participant.is_host ? "host" : "joined"}</span>
+                    <span>${participant.id === state.participant?.id ? "you" : ""}${participant.id === state.participant?.id && participant.is_host ? " / " : ""}${participant.is_host ? "host" : "joined"}</span>
                   </div>`,
               )
               .join("")}
@@ -281,14 +315,15 @@ function renderLobby() {
           ? html`
               <form id="settingsForm">
                 <div class="form-grid">
-                  <label>Number of AI's<input name="aiCount" type="number" min="1" max="8" value="${s.aiCount}" /></label>
-                  <label>Rounds<input name="roundCount" type="number" min="1" max="8" value="${s.roundCount}" /></label>
-                  <label>Seconds per round<input name="roundSeconds" type="number" min="10" max="180" value="${s.roundSeconds}" /></label>
-                  <label>Character limit<input name="charLimit" type="number" min="40" max="280" value="${s.charLimit}" /></label>
+                  <label>Number of AI's<input name="aiCount" type="number" min="1" max="8" value="${summary.aiCount}" /></label>
+                  <label>Rounds<input name="roundCount" type="number" min="1" max="8" value="${summary.roundCount}" /></label>
+                  <label>Seconds per round<input name="roundSeconds" type="number" min="10" max="180" value="${summary.roundSeconds}" /></label>
+                  <label>Character limit<input name="charLimit" type="number" min="40" max="280" value="${summary.charLimit}" /></label>
                 </div>
+                <div class="notice compact">${escapeHtml(summary.startReason)} Start also saves these settings.</div>
                 <div class="actions" style="margin-top:16px">
                   <button class="secondary" type="submit">Save settings</button>
-                  <button class="primary" id="startGame" type="button">Start game</button>
+                  <button class="primary" id="startGame" type="button" ${summary.canStart ? "" : "disabled"}>${state.isStartingGame ? "Starting..." : "Start game"}</button>
                 </div>
               </form>
             `
@@ -600,6 +635,7 @@ function bindCommonEvents() {
   document.getElementById("settingsForm")?.addEventListener("submit", onSaveSettings);
   document.getElementById("startGame")?.addEventListener("click", startGame);
   document.getElementById("copyLink")?.addEventListener("click", copyLink);
+  document.getElementById("copyCode")?.addEventListener("click", copyRoomCode);
   document.getElementById("publicForm")?.addEventListener("submit", onPublicMessage);
   document.getElementById("dmForm")?.addEventListener("submit", onDirectMessage);
   document.getElementById("dmSeat")?.addEventListener("change", (event) => {
@@ -653,6 +689,7 @@ async function createRoom(displayName) {
 async function joinRoom(code, displayName) {
   const { data: room, error: roomError } = await supabase.from("rooms").select("*").eq("code", code).single();
   if (roomError) return alert("Room not found.");
+  if (room.status !== "lobby") return alert("That room is already in progress.");
   const { data: participant, error: participantError } = await supabase
     .from("participants")
     .insert({ room_id: room.id, display_name: displayName, is_host: false })
@@ -736,15 +773,20 @@ function updateCountdown() {
 
 async function onSaveSettings(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const nextSettings = {
+  const nextSettings = settingsFromForm(event.currentTarget);
+  const { error } = await supabase.from("rooms").update({ settings: nextSettings }).eq("id", state.room.id);
+  state.lobbyNotice = error ? "" : "Settings saved.";
+  if (error) alert(error.message);
+}
+
+function settingsFromForm(formElement) {
+  const form = new FormData(formElement);
+  return {
     aiCount: clamp(form.get("aiCount"), 1, 8, 2),
     roundCount: clamp(form.get("roundCount"), 1, 8, 3),
     roundSeconds: clamp(form.get("roundSeconds"), 10, 180, 60),
     charLimit: clamp(form.get("charLimit"), 40, 280, 160),
   };
-  const { error } = await supabase.from("rooms").update({ settings: nextSettings }).eq("id", state.room.id);
-  if (error) alert(error.message);
 }
 
 function clamp(value, min, max, fallback) {
@@ -754,8 +796,18 @@ function clamp(value, min, max, fallback) {
 }
 
 async function startGame() {
-  if (!isHost()) return;
-  const s = settings();
+  if (!isHost() || state.isStartingGame) return;
+  if (state.participants.length < 2) return alert("You need at least 2 human players before starting.");
+  state.isStartingGame = true;
+  render();
+  const settingsForm = document.getElementById("settingsForm");
+  const s = settingsForm ? settingsFromForm(settingsForm) : settings();
+  const { error: settingsError } = await supabase.from("rooms").update({ settings: s }).eq("id", state.room.id);
+  if (settingsError) {
+    state.isStartingGame = false;
+    render();
+    return alert(settingsError.message);
+  }
   const nextGameNumber = (state.room.game_number || 0) + 1;
   const { data: game, error: gameError } = await supabase
     .from("games")
@@ -768,12 +820,21 @@ async function startGame() {
     })
     .select("*")
     .single();
-  if (gameError) return alert(gameError.message);
+  if (gameError) {
+    state.isStartingGame = false;
+    render();
+    return alert(gameError.message);
+  }
 
   const seats = buildSeats(game.id, s.aiCount);
   const { error: seatsError } = await supabase.from("seats").insert(seats);
-  if (seatsError) return alert(seatsError.message);
+  if (seatsError) {
+    state.isStartingGame = false;
+    render();
+    return alert(seatsError.message);
+  }
   await supabase.from("rooms").update({ status: "playing", game_number: nextGameNumber, next_game_at: null }).eq("id", state.room.id);
+  state.isStartingGame = false;
   await refreshAll();
 }
 
