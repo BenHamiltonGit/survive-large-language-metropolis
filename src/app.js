@@ -1862,6 +1862,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = nul
 async function insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null) {
   const body = await generateAiText(aiSeat, triggerMessageId);
   if (!body) return false;
+  await waitForTypingDelay(body);
   const fallback = await supabase.from("messages").insert({
     room_id: state.room.id,
     game_id: state.game.id,
@@ -1873,6 +1874,18 @@ async function insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId 
   });
   if (fallback.error) alert(fallback.error.message);
   return !fallback.error;
+}
+
+function typingDelayMs(body) {
+  const length = String(body || "").length;
+  const charsPerSecond = 7 + Math.random() * 6;
+  const thinkingMs = 500 + Math.random() * 1400;
+  const typoPauseMs = stableRandom(`${body}:typing-pause`) > 0.78 ? 700 + Math.random() * 1300 : 0;
+  return Math.min(12000, Math.max(900, Math.round(thinkingMs + (length / charsPerSecond) * 1000 + typoPauseMs)));
+}
+
+function waitForTypingDelay(body) {
+  return new Promise((resolve) => setTimeout(resolve, typingDelayMs(body)));
 }
 
 function currentMimicMessages(aiSeat) {

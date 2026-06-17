@@ -39,6 +39,7 @@ Deno.serve(async (req) => {
     const raw = await callModel(provider, prompt, context.charLimit);
     const parsed = ResponseSchema.parse(JSON.parse(extractJson(raw)));
     const safe = applyGuardrails(parsed.message, context.charLimit);
+    await waitForTypingDelay(safe);
 
     const { data: message, error } = await supabase
       .from("messages")
@@ -238,6 +239,18 @@ function sanitizeStoredText(value = "", maxLength = 1000) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function typingDelayMs(body: string) {
+  const length = String(body || "").length;
+  const charsPerSecond = 7 + Math.random() * 6;
+  const thinkingMs = 500 + Math.random() * 1400;
+  const typoPauseMs = Math.random() > 0.78 ? 700 + Math.random() * 1300 : 0;
+  return Math.min(12000, Math.max(900, Math.round(thinkingMs + (length / charsPerSecond) * 1000 + typoPauseMs)));
+}
+
+function waitForTypingDelay(body: string) {
+  return new Promise((resolve) => setTimeout(resolve, typingDelayMs(body)));
 }
 
 function buildPrompt(context: any) {
