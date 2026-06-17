@@ -78,6 +78,19 @@ function escapeHtml(value = "") {
   });
 }
 
+function sanitizeStoredText(value = "", maxLength = 1000) {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+    .replace(/\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[phone]")
+    .replace(/https?:\/\/\S+|www\.\S+/gi, "[url]")
+    .replace(/\b(?:sk|sbp|ghp|github_pat|xox[baprs])_[A-Za-z0-9_-]{12,}\b/g, "[secret]")
+    .replace(/\b(api[_-]?key|password|passwd|token|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
 function randomCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
@@ -1480,11 +1493,13 @@ async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
 async function savePlayerMemory(fromSeatId, messageId, body) {
   const seat = seatById(fromSeatId);
   if (seat?.kind !== "human" || !seat.participant_id) return;
+  const sanitized = sanitizeStoredText(body);
+  if (!sanitized) return;
   await supabase.from("player_memories").upsert(
     {
       participant_id: seat.participant_id,
       message_id: messageId,
-      body,
+      body: sanitized,
     },
     { onConflict: "message_id", ignoreDuplicates: true },
   );

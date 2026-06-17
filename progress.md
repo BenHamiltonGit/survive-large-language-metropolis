@@ -34,6 +34,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Rooms now soft-remove players on page exit and delete themselves through a Supabase `leave_room` RPC once no active human participants remain.
 - AIs now wait until their mimic target has written at least one accessible message before speaking, and mimic context includes all messages written by that target, including DMs.
 - Human messages now save into `player_memories`, AI turns backfill embeddings for mimic samples, and successful LLM turns save prompt/context/output rows in `ai_training_examples` for training/evals.
+- Memory/training storage now sanitizes saved text by redacting emails, phone numbers, URLs, obvious secrets/tokens/password-like values, control characters, and oversized payloads.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.

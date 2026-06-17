@@ -156,12 +156,14 @@ async function rememberMimicMessages(supabase: any, participantId: string, messa
   if (!candidates.length) return;
 
   for (const message of candidates) {
-    const embedding = await embedText(message.body);
+    const body = sanitizeStoredText(message.body);
+    if (!body) continue;
+    const embedding = await embedText(body);
     await supabase.from("player_memories").upsert(
       {
         participant_id: participantId,
         message_id: message.id,
-        body: message.body,
+        body,
         embedding,
       },
       { onConflict: "message_id" },
@@ -190,9 +192,9 @@ async function saveTrainingExample(
     provider,
     model: context.model,
     channel: input.channel,
-    prompt,
-    raw_response: rawResponse,
-    final_message: finalMessage,
+    prompt: sanitizeStoredText(prompt, 12000),
+    raw_response: sanitizeStoredText(rawResponse, 4000),
+    final_message: sanitizeStoredText(finalMessage, 500),
     intent: parsed.intent,
     risk_flags: parsed.riskFlags,
     context: {
@@ -203,6 +205,19 @@ async function saveTrainingExample(
       hadTrigger: Boolean(context.triggerMessage),
     },
   });
+}
+
+function sanitizeStoredText(value = "", maxLength = 1000) {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+    .replace(/\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[phone]")
+    .replace(/https?:\/\/\S+|www\.\S+/gi, "[url]")
+    .replace(/\b(?:sk|sbp|ghp|github_pat|xox[baprs])_[A-Za-z0-9_-]{12,}\b/g, "[secret]")
+    .replace(/\b(api[_-]?key|password|passwd|token|secret)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
 function buildPrompt(context: any) {
