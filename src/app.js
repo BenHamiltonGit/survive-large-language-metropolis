@@ -1594,6 +1594,7 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
     .sort((left, right) => messageTime(left) - messageTime(right));
 
   for (const aiSeat of aiSeats) {
+    if (!(await hasMimicSamples(aiSeat))) continue;
     const aiMessages = messages.filter((message) => message.from_seat_id === aiSeat.id);
 
     for (const incoming of directIncoming.filter((message) => message.to_seat_id === aiSeat.id)) {
@@ -1647,6 +1648,7 @@ async function runAiRoundMessages() {
   const aiSeats = state.seats.filter((seat) => seat.kind === "ai");
   await runReactiveAiMessages(aiSeats, lockScope);
   for (const aiSeat of aiSeats) {
+    if (!(await hasMimicSamples(aiSeat))) continue;
     const publicKey = `${lockScope}:${aiSeat.id}:public`;
     const publicCount = state.messages.filter(
       (message) => message.from_seat_id === aiSeat.id && message.channel === "public" && message.round_number === state.game.round_number,
@@ -1702,6 +1704,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId) {
 
 async function insertLocalAiMessage(aiSeat, channel, toSeatId) {
   const body = await generateAiText(aiSeat);
+  if (!body) return false;
   const fallback = await supabase.from("messages").insert({
     room_id: state.room.id,
     game_id: state.game.id,
@@ -1715,11 +1718,14 @@ async function insertLocalAiMessage(aiSeat, channel, toSeatId) {
   return !fallback.error;
 }
 
-async function generateAiText(aiSeat) {
+function currentMimicMessages(aiSeat) {
   const targetSeatIds = state.seats
     .filter((seat) => seat.participant_id === aiSeat.mimic_participant_id)
     .map((seat) => seat.id);
-  const currentSamples = state.messages.filter((message) => targetSeatIds.includes(message.from_seat_id)).map((message) => message.body);
+  return state.messages.filter((message) => targetSeatIds.includes(message.from_seat_id)).map((message) => message.body);
+}
+
+async function historicalMimicMessages(aiSeat, limit = 20) {
   const { data: historicalSeats } = await supabase
     .from("seats")
     .select("id")
@@ -1733,19 +1739,29 @@ async function generateAiText(aiSeat) {
       .from("messages")
       .select("body")
       .in("from_seat_id", historicalSeatIds)
-      .eq("channel", "public")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(limit);
     historicalMessages = data || [];
   }
-  const samples = [...currentSamples, ...historicalMessages.map((row) => row.body)];
+  return historicalMessages.map((row) => row.body);
+}
+
+async function hasMimicSamples(aiSeat) {
+  if (currentMimicMessages(aiSeat).length > 0) return true;
+  return (await historicalMimicMessages(aiSeat, 1)).length > 0;
+}
+
+async function generateAiText(aiSeat) {
+  const currentSamples = currentMimicMessages(aiSeat);
+  const historicalMessages = await historicalMimicMessages(aiSeat);
+  const samples = [...currentSamples, ...historicalMessages];
   if (samples.length) {
     const sample = samples[Math.floor(Math.random() * samples.length)];
     const words = sample.split(/\s+/).filter(Boolean).slice(0, 10).join(" ");
     const tail = FILLER[Math.floor(Math.random() * FILLER.length)];
     return `${words} - ${tail}`.slice(0, settings().charLimit);
   }
-  return FILLER[Math.floor(Math.random() * FILLER.length)];
+  return "";
 }
 
 async function boot() {

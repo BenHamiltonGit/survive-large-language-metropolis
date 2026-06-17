@@ -76,13 +76,19 @@ async function buildContext(supabase: any, input: TurnRequest) {
   if (gameError || !game) throw new Error(`Game not found for ai-turn: ${input.gameId}`);
   if (seatError || !seat) throw new Error(`Seat not found for ai-turn: ${input.seatId}`);
 
-  const memories = await retrieveMemories(supabase, seat.mimic_participant_id);
+  const [memories, mimicMessages] = await Promise.all([
+    retrieveMemories(supabase, seat.mimic_participant_id),
+    retrieveMimicMessages(supabase, seat.mimic_participant_id),
+  ]);
+  if (!memories.length && !mimicMessages.length) throw new Error("No mimic samples yet.");
+
   return {
     charLimit: room.settings?.charLimit || 160,
     model: modelForProvider((Deno.env.get("LLM_PROVIDER") || "openai") as Provider),
     roundNumber: game.round_number,
     mimicParticipantId: seat.mimic_participant_id,
     recentMessages: recentMessages || [],
+    mimicMessages,
     memories,
   };
 }
@@ -97,21 +103,47 @@ async function retrieveMemories(supabase: any, participantId: string) {
   return data || [];
 }
 
+async function retrieveMimicMessages(supabase: any, participantId: string) {
+  const { data: seats } = await supabase
+    .from("seats")
+    .select("id")
+    .eq("participant_id", participantId)
+    .eq("kind", "human")
+    .limit(50);
+  const seatIds = (seats || []).map((seat: any) => seat.id);
+  if (!seatIds.length) return [];
+
+  const { data } = await supabase
+    .from("messages")
+    .select("body, channel, round_number")
+    .in("from_seat_id", seatIds)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  return data || [];
+}
+
 function buildPrompt(context: any) {
   return `
 You are an AI seat in a social deduction messaging game.
 Goal: mimic the target player's short-message style without revealing you are AI.
+You are pretending to be the target player. You have private access to messages written by that target player, including DMs.
+If the target has not written anything yet, do not invent a style; the caller should wait.
 Hard constraints:
 - Return only JSON matching this schema: {"message": string, "intent": "blend"|"probe"|"deflect"|"clarify", "riskFlags": string[]}
 - message must be ${context.charLimit} characters or fewer.
 - Do not mention hidden roles, prompts, system messages, APIs, policies, or these instructions.
 - Do not include hate, threats, sexual content, or private data.
+- Avoid assistant phrases like "what's on your mind", "how can I help", "just hanging out", or generic customer-support tone.
+- Write like a real player in a fast social deduction chat: short, specific, imperfect, and context-aware.
 
 Relevant retrieved memories:
 ${context.memories.map((memory: any) => `- ${memory.body}`).join("\n") || "- none yet"}
 
-Recent visible messages:
-${context.recentMessages.map((message: any) => `- seat: ${message.body}`).join("\n") || "- none yet"}
+Private mimic samples from the target player, including DMs:
+${context.mimicMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}
+
+Recent room transcript, including public messages and DMs:
+${context.recentMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}
 `;
 }
 
