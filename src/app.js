@@ -71,6 +71,7 @@ const state = {
   toastTimer: null,
   audioReady: false,
   audioContext: null,
+  skipRestoreKeys: new Set(),
 };
 
 const app = document.getElementById("app");
@@ -472,8 +473,10 @@ function restoreFormValues(values) {
   if (!values) return;
   document.querySelectorAll("[name]").forEach((el) => {
     const key = `${el.closest("form")?.id || "global"}:${el.name}`;
+    if (state.skipRestoreKeys.has(key)) return;
     if (Object.prototype.hasOwnProperty.call(values, key)) el.value = values[key];
   });
+  state.skipRestoreKeys.clear();
 }
 
 function render() {
@@ -1622,8 +1625,12 @@ async function onPublicMessage(event) {
   const mine = mySeat();
   if (!mine || messagesFromMe("public").length >= 2) return;
   const body = String(new FormData(event.currentTarget).get("body") || "").trim();
-  await insertMessage(mine.id, "public", body);
-  state.drafts.public = "";
+  const sent = await insertMessage(mine.id, "public", body);
+  if (sent) {
+    state.drafts.public = "";
+    state.skipRestoreKeys.add("publicForm:body");
+    event.currentTarget.reset();
+  }
 }
 
 async function onDirectMessage(event) {
@@ -1632,13 +1639,17 @@ async function onDirectMessage(event) {
   const toSeatId = state.selectedDmSeatId;
   if (messagesFromMe("direct").length >= 4) return;
   const body = String(new FormData(event.currentTarget).get("body") || "").trim();
-  await insertMessage(mine.id, "direct", body, toSeatId);
-  state.drafts.direct[toSeatId] = "";
+  const sent = await insertMessage(mine.id, "direct", body, toSeatId);
+  if (sent) {
+    state.drafts.direct[toSeatId] = "";
+    state.skipRestoreKeys.add("dmForm:body");
+    event.currentTarget.reset();
+  }
 }
 
 async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
   const clean = body.slice(0, settings().charLimit);
-  if (!clean) return;
+  if (!clean) return false;
   const { data, error } = await supabase.from("messages").insert({
     room_id: state.room.id,
     game_id: state.game.id,
@@ -1648,8 +1659,12 @@ async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
     channel,
     body: clean,
   }).select("id").single();
-  if (error) alert(error.message);
-  else await savePlayerMemory(fromSeatId, data.id, clean);
+  if (error) {
+    alert(error.message);
+    return false;
+  }
+  await savePlayerMemory(fromSeatId, data.id, clean);
+  return true;
 }
 
 async function savePlayerMemory(fromSeatId, messageId, body) {
