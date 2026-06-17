@@ -31,6 +31,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Guessing/final-label screen now also uses the compact timer HUD instead of the large site title.
 - When the guessing timer hits zero, each client auto-submits its current draft guesses; blank identities are submitted as `unanswered` and score wrong.
 - AI turns are now reactive: DMs sent to an AI trigger delayed replies, and public human messages can draw delayed AI responses with a higher priority when the AI's visible color name is called out.
+- Rooms now soft-remove players on page exit and delete themselves through a Supabase `leave_room` RPC once no active human participants remain.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.

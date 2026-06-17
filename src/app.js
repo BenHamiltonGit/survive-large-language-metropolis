@@ -62,6 +62,7 @@ const state = {
   windowMeta: {},
   nextWindowZ: 10,
   draggingWindow: null,
+  isLeavingRoom: false,
 };
 
 const app = document.getElementById("app");
@@ -1209,7 +1210,7 @@ async function loadRoom(code) {
 async function refreshAll() {
   if (!state.room) return;
   const [participantsRes, gamesRes] = await Promise.all([
-    supabase.from("participants").select("*").eq("room_id", state.room.id).order("created_at"),
+    supabase.from("participants").select("*").eq("room_id", state.room.id).is("left_at", null).order("created_at"),
     supabase.from("games").select("*").eq("room_id", state.room.id).order("created_at", { ascending: false }).limit(1),
   ]);
   state.participants = participantsRes.data || [];
@@ -1300,6 +1301,35 @@ function updateTimerDisplay() {
       state.game?.status === "guessing" ? "Final labels" : `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
   }
   if (guessTimerPill) guessTimerPill.textContent = `${state.countdown}s`;
+}
+
+function leaveRoomRequestOptions(participantId, keepalive = false) {
+  return {
+    method: "POST",
+    keepalive,
+    headers: {
+      apikey: SUPABASE_PUBLIC_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLIC_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ leaving_participant_id: participantId }),
+  };
+}
+
+async function leaveCurrentRoom({ keepalive = false } = {}) {
+  if (!supabaseReady || state.isLeavingRoom || !local.participantId) return;
+  state.isLeavingRoom = true;
+  const participantId = local.participantId;
+  local.participantId = "";
+  localStorage.removeItem("llm-metropolis-participant-id");
+
+  if (keepalive) {
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/leave_room`, leaveRoomRequestOptions(participantId, true)).catch(() => {});
+    return;
+  }
+
+  const { error } = await supabase.rpc("leave_room", { leaving_participant_id: participantId });
+  if (error) console.warn("Failed to leave room:", error.message);
 }
 
 async function onSaveSettings(event) {
@@ -1745,6 +1775,7 @@ async function bootInviteLink(code) {
       .select("id")
       .eq("id", local.participantId)
       .eq("room_id", room.id)
+      .is("left_at", null)
       .maybeSingle();
     if (participant) {
       await loadRoom(code);
@@ -1776,5 +1807,9 @@ window.advanceTime = async (ms) => {
   render();
   await hostMaintenance();
 };
+
+window.addEventListener("pagehide", () => {
+  leaveCurrentRoom({ keepalive: true });
+});
 
 boot();
