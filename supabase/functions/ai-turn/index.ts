@@ -20,6 +20,7 @@ type TurnRequest = {
   seatId: string;
   channel: "public" | "direct";
   toSeatId?: string;
+  triggerMessageId?: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -60,7 +61,13 @@ Deno.serve(async (req) => {
 });
 
 async function buildContext(supabase: any, input: TurnRequest) {
-  const [{ data: game, error: gameError }, { data: seat, error: seatError }, { data: room, error: roomError }, { data: recentMessages }] = await Promise.all([
+  const [
+    { data: game, error: gameError },
+    { data: seat, error: seatError },
+    { data: room, error: roomError },
+    { data: recentMessages },
+    { data: triggerMessage },
+  ] = await Promise.all([
     supabase.from("games").select("*").eq("id", input.gameId).single(),
     supabase.from("seats").select("*").eq("id", input.seatId).single(),
     supabase.from("rooms").select("*").eq("id", input.roomId).single(),
@@ -70,6 +77,13 @@ async function buildContext(supabase: any, input: TurnRequest) {
       .eq("game_id", input.gameId)
       .order("created_at", { ascending: false })
       .limit(24),
+    input.triggerMessageId
+      ? supabase
+          .from("messages")
+          .select("body, channel, round_number, from_seat_id, to_seat_id")
+          .eq("id", input.triggerMessageId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   if (roomError || !room) throw new Error(`Room not found for ai-turn: ${input.roomId}`);
@@ -87,7 +101,9 @@ async function buildContext(supabase: any, input: TurnRequest) {
     model: modelForProvider((Deno.env.get("LLM_PROVIDER") || "openai") as Provider),
     roundNumber: game.round_number,
     mimicParticipantId: seat.mimic_participant_id,
+    responseChannel: input.channel,
     recentMessages: recentMessages || [],
+    triggerMessage,
     mimicMessages,
     memories,
   };
@@ -135,12 +151,16 @@ Hard constraints:
 - Do not include hate, threats, sexual content, or private data.
 - Avoid assistant phrases like "what's on your mind", "how can I help", "just hanging out", or generic customer-support tone.
 - Write like a real player in a fast social deduction chat: short, specific, imperfect, and context-aware.
+- This turn will be posted to the ${context.responseChannel} channel. Reply as if you are writing in that exact channel, not another chat.
 
 Relevant retrieved memories:
 ${context.memories.map((memory: any) => `- ${memory.body}`).join("\n") || "- none yet"}
 
 Private mimic samples from the target player, including DMs:
 ${context.mimicMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}
+
+Message that triggered this AI turn:
+${context.triggerMessage ? `- ${context.triggerMessage.channel} R${context.triggerMessage.round_number}: ${context.triggerMessage.body}` : "- proactive message; no specific trigger"}
 
 Recent room transcript, including public messages and DMs:
 ${context.recentMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}

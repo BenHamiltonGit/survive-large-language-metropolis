@@ -429,7 +429,7 @@ function renderInviteJoin() {
           ${state.inviteError ? `<div class="notice">${escapeHtml(state.inviteError)}</div>` : ""}
           <label>
             Your name
-            <input name="name" maxlength="32" value="Ben" required autofocus />
+            <input name="name" maxlength="32" placeholder="Name" required autofocus />
           </label>
           <div class="actions">
             <button class="primary" type="submit" ${state.inviteError ? "disabled" : ""}>Join room</button>
@@ -469,7 +469,7 @@ function renderConnect() {
           : ""}
         <label>
           Your name
-          <input name="name" maxlength="32" value="Ben" required />
+          <input name="name" maxlength="32" placeholder="Name" required />
         </label>
         <label>
           Room code
@@ -1609,7 +1609,7 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       const delay = reactionDelaySeconds(`${directKey}:delay`, 4, 10);
       if (!alreadyReplied && directCount < 8 && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(directKey)) {
         state.aiSendLocks.add(directKey);
-        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id);
+        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id, incoming.id);
         if (!sent) state.aiSendLocks.delete(directKey);
       }
     }
@@ -1628,7 +1628,7 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       const delay = reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : 6, mentioned ? 9 : 14);
       if (!alreadyReplied && publicCount < maxPublicMessages && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(publicKey)) {
         state.aiSendLocks.add(publicKey);
-        const sent = await insertAiMessage(aiSeat, "public", null);
+        const sent = await insertAiMessage(aiSeat, "public", null, incoming.id);
         if (!sent) state.aiSendLocks.delete(publicKey);
       }
     }
@@ -1680,8 +1680,8 @@ async function runAiRoundMessages() {
   }
 }
 
-async function insertAiMessage(aiSeat, channel, toSeatId) {
-  if (LOCAL_AI_ONLY) return insertLocalAiMessage(aiSeat, channel, toSeatId);
+async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null) {
+  if (LOCAL_AI_ONLY) return insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId);
 
   const { data, error } = await supabase.functions.invoke("ai-turn", {
     body: {
@@ -1690,6 +1690,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId) {
       seatId: aiSeat.id,
       channel,
       toSeatId,
+      triggerMessageId,
     },
   });
 
@@ -1699,11 +1700,11 @@ async function insertAiMessage(aiSeat, channel, toSeatId) {
   }
 
   console.warn("Falling back to local AI mock:", error?.message || data?.error || "unknown edge function response");
-  return insertLocalAiMessage(aiSeat, channel, toSeatId);
+  return insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId);
 }
 
-async function insertLocalAiMessage(aiSeat, channel, toSeatId) {
-  const body = await generateAiText(aiSeat);
+async function insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null) {
+  const body = await generateAiText(aiSeat, triggerMessageId);
   if (!body) return false;
   const fallback = await supabase.from("messages").insert({
     room_id: state.room.id,
@@ -1751,13 +1752,15 @@ async function hasMimicSamples(aiSeat) {
   return (await historicalMimicMessages(aiSeat, 1)).length > 0;
 }
 
-async function generateAiText(aiSeat) {
+async function generateAiText(aiSeat, triggerMessageId = null) {
   const currentSamples = currentMimicMessages(aiSeat);
   const historicalMessages = await historicalMimicMessages(aiSeat);
   const samples = [...currentSamples, ...historicalMessages];
   if (samples.length) {
+    const trigger = state.messages.find((message) => message.id === triggerMessageId);
     const sample = samples[Math.floor(Math.random() * samples.length)];
-    const words = sample.split(/\s+/).filter(Boolean).slice(0, 10).join(" ");
+    const source = trigger?.body || sample;
+    const words = source.split(/\s+/).filter(Boolean).slice(0, 8).join(" ");
     const tail = FILLER[Math.floor(Math.random() * FILLER.length)];
     return `${words} - ${tail}`.slice(0, settings().charLimit);
   }
