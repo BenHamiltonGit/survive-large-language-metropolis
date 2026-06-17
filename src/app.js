@@ -42,6 +42,69 @@ const ROUND_QUESTIONS = [
   "What did you want to be as a kid?",
   "What is your most-used app?",
   "What is a tiny thing that annoys you?",
+  "What was your first concert?",
+  "What is your default pizza order?",
+  "What teacher do you still remember?",
+  "What is a place you would never move to?",
+  "What is a book you actually finished?",
+  "What is your least favorite chore?",
+  "What is the best breakfast food?",
+  "What is a nickname you have had?",
+  "What is a smell that reminds you of childhood?",
+  "What is the worst haircut you've had?",
+  "What is a store you spend too much time in?",
+  "What is a game you played too much?",
+  "What is your most controversial food opinion?",
+  "What is a holiday you secretly like?",
+  "What is a bad habit you notice in yourself?",
+  "What is your favorite weather?",
+  "What is a thing you always overpack?",
+  "What was your first car or first regular ride?",
+  "What is a phrase you say too much?",
+  "What is your go-to karaoke song?",
+  "What is a skill you wish you had?",
+  "What is a restaurant chain you defend?",
+  "What is a small purchase that made your life better?",
+  "What is your least favorite app notification?",
+  "What is a movie you will always rewatch?",
+  "What is a thing you believed as a kid?",
+  "What is your usual coffee or drink order?",
+  "What is a city you want to visit again?",
+  "What is the strangest thing in your fridge?",
+  "What is your favorite school lunch memory?",
+  "What is an outfit you regret wearing?",
+  "What is a smell you cannot stand?",
+  "What is your most boring hobby?",
+  "What is a rule you always break?",
+  "What is the last thing you searched for?",
+  "What is a word you hate hearing?",
+  "What is your favorite cheap meal?",
+  "What is the best candy?",
+  "What is the worst candy?",
+  "What was your favorite class?",
+  "What is something you are weirdly good at?",
+  "What is something you are weirdly bad at?",
+  "What is your favorite gas station drink?",
+  "What is a TV show you dropped halfway through?",
+  "What is a song you skip every time?",
+  "What is the best chip flavor?",
+  "What is your favorite thing to do on a Sunday?",
+  "What is a place you know too well?",
+  "What is your most-used emoji or reaction?",
+  "What is something you always procrastinate?",
+  "What is the last thing you fixed?",
+  "What is the worst airport you've been in?",
+  "What is your favorite fast food side?",
+  "What is something you collect accidentally?",
+  "What is your favorite childhood snack?",
+  "What is a website you still visit out of habit?",
+  "What is a sound that stresses you out?",
+  "What is a thing you would never eat again?",
+  "What is the best kind of cake?",
+  "What is a random fact you know?",
+  "What is something you learned the hard way?",
+  "What is your least favorite month?",
+  "What is a place you would take a friend visiting town?",
 ];
 
 const local = {
@@ -277,6 +340,38 @@ function secondsSinceMessage(message) {
 
 function messageTime(message) {
   return new Date(message.created_at).getTime();
+}
+
+function currentRoundStartTime() {
+  if (!state.game?.round_ends_at) return Date.now() - (settings().roundSeconds - state.countdown) * 1000;
+  return new Date(state.game.round_ends_at).getTime() - settings().roundSeconds * 1000;
+}
+
+function currentRoundElapsedSeconds() {
+  return Math.max(0, (Date.now() - currentRoundStartTime()) / 1000);
+}
+
+function messageRoundElapsedSeconds(message) {
+  return Math.max(0, (messageTime(message) - currentRoundStartTime()) / 1000);
+}
+
+function aiAnswerTargetSecond(seed, aiSeat, publicAnswers) {
+  const roundSeconds = settings().roundSeconds;
+  const elapsedAnswers = publicAnswers
+    .filter((message) => message.from_seat_id !== aiSeat.id)
+    .map(messageRoundElapsedSeconds)
+    .sort((left, right) => left - right);
+  if (!elapsedAnswers.length) return Infinity;
+
+  const latest = elapsedAnswers[elapsedAnswers.length - 1];
+  const average = elapsedAnswers.reduce((sum, value) => sum + value, 0) / elapsedAnswers.length;
+  const roomPace = Math.max(2, Math.min(roundSeconds * 0.75, (latest + average) / 2));
+  const answerRatio = elapsedAnswers.length / Math.max(1, state.seats.length - 1);
+  const urgency = answerRatio > 0.65 ? -2 : answerRatio > 0.35 ? 0 : 3;
+  const variance = 2 + stableRandom(`${seed}:variance`) * 7;
+  const stagger = aiStaggerSeconds(seed, aiSeat, Math.min(12, Math.max(4, Math.floor(roundSeconds * 0.18))));
+  const target = Math.max(latest + 2, roomPace + urgency + variance + stagger);
+  return Math.min(roundSeconds - 4, Math.max(3, Math.round(target)));
 }
 
 function bodyMentionsSeat(body, seat) {
@@ -1845,8 +1940,8 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
     const trigger = publicIncoming.find((message) => message.from_seat_id !== aiSeat.id);
     if (!trigger) continue;
     const publicKey = `${lockScope}:${aiSeat.id}:question-answer:${trigger.id}`;
-    const delay = reactionDelaySeconds(`${publicKey}:delay`, 3, 8) + aiStaggerSeconds(publicKey, aiSeat, 14);
-    if (secondsSinceMessage(trigger) >= delay && !state.aiSendLocks.has(publicKey)) {
+    const targetSecond = aiAnswerTargetSecond(publicKey, aiSeat, publicIncoming);
+    if (currentRoundElapsedSeconds() >= targetSecond && !state.aiSendLocks.has(publicKey)) {
       state.aiSendLocks.add(publicKey);
       const sent = await insertAiMessage(aiSeat, "public", null, trigger.id, "question_answer");
       if (!sent) state.aiSendLocks.delete(publicKey);
