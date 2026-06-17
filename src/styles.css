@@ -578,6 +578,27 @@ label {
   min-height: 520px;
 }
 
+.round-question {
+  display: grid;
+  gap: 5px;
+  border-bottom: 3px solid var(--line);
+  background: #fff0a8;
+  padding: 12px;
+}
+
+.round-question span {
+  color: #8a3c00;
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.round-question strong {
+  color: #21170f;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
 .dm-window {
   min-height: 300px;
 }

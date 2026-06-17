@@ -29,6 +29,20 @@ const FILLER = [
   "say less",
   "hmm",
 ];
+const ROUND_QUESTIONS = [
+  "What's your favorite ice cream flavor?",
+  "Where did you go to high school?",
+  "What was your first screen name?",
+  "What is a food you irrationally hate?",
+  "What song do you know by heart?",
+  "What is the weirdest job you've had?",
+  "What city feels most like home?",
+  "What is your go-to gas station snack?",
+  "What is a movie you quote too much?",
+  "What did you want to be as a kid?",
+  "What is your most-used app?",
+  "What is a tiny thing that annoys you?",
+];
 
 const local = {
   participantId: localStorage.getItem("llm-metropolis-participant-id") || "",
@@ -239,6 +253,22 @@ function participantById(id) {
 
 function currentRoundMessages() {
   return state.messages.filter((message) => message.round_number === state.game?.round_number);
+}
+
+function currentQuestion(roundNumber = state.game?.round_number || 1) {
+  return ROUND_QUESTIONS[(Math.max(1, roundNumber) - 1) % ROUND_QUESTIONS.length];
+}
+
+function currentPublicAnswers() {
+  return currentRoundMessages().filter((message) => message.channel === "public");
+}
+
+function hasPublicAnswer(seatId) {
+  return currentPublicAnswers().some((message) => message.from_seat_id === seatId);
+}
+
+function allSeatsAnswered() {
+  return state.seats.length > 0 && state.seats.every((seat) => hasPublicAnswer(seat.id));
 }
 
 function secondsSinceMessage(message) {
@@ -670,8 +700,8 @@ function renderLobby() {
 function renderGame() {
   const seat = mySeat();
   const s = settings();
-  const publicLeft = Math.max(0, 2 - messagesFromMe("public").length);
-  const dmLeft = Math.max(0, 4 - messagesFromMe("direct").length);
+  const publicLeft = Math.max(0, 1 - messagesFromMe("public").length);
+  const answerCount = currentPublicAnswers().length;
   const identityStrip = topIdentityStrip(seat);
   const monitorBody = `
     <div class="window-body" data-scroll-id="monitor">
@@ -682,8 +712,8 @@ function renderGame() {
       <div class="panel-section">
         <div class="section-title"><span>Allowances</span></div>
         <div class="allowances">
-          <div class="allowance"><span>Public</span><strong>${publicLeft}</strong></div>
-          <div class="allowance"><span>DMs</span><strong>${dmLeft}</strong></div>
+          <div class="allowance"><span>Answer</span><strong>${publicLeft}</strong></div>
+          <div class="allowance"><span>Submitted</span><strong>${answerCount}/${state.seats.length}</strong></div>
           <div class="allowance"><span>Character limit</span><strong>${s.charLimit}</strong></div>
         </div>
       </div>
@@ -697,19 +727,23 @@ function renderGame() {
     .filter((entry) => entry.id !== seat?.id)
     .map(
       (entry) => `
-        <button class="identity identity-button" type="button" data-seat-id="${entry.id}">
+        <div class="identity">
           ${identityName(entry)}
-          <div class="identity-meta">Click to DM</div>
-        </button>`,
+          <div class="identity-meta">${hasPublicAnswer(entry.id) ? "Answered" : "Waiting"}</div>
+        </div>`,
     )
     .join("")}</div>`;
   const publicBody = `
+    <div class="round-question">
+      <span>Round question</span>
+      <strong>${escapeHtml(currentQuestion())}</strong>
+    </div>
     <div class="message-list" data-scroll-id="board-public">${publicMessages()}</div>
     <form id="publicForm" class="composer">
-      <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="Public posts this round">${escapeHtml(state.drafts.public)}</textarea>
+      <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="Answer the round question">${escapeHtml(state.drafts.public)}</textarea>
       <div class="composer-row">
-        <span class="counter">${publicLeft} left / character limit ${s.charLimit}</span>
-        <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
+        <span class="counter">${publicLeft} answer left / character limit ${s.charLimit}</span>
+        <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Submit answer</button>
       </div>
     </form>
   `;
@@ -720,7 +754,6 @@ function renderGame() {
         ${desktopWindow("monitor", "PLAYER_MONITOR.SYS", monitorBody, "monitor-window")}
         ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
         ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
-        ${dmWindows(dmLeft)}
         <div class="desktop-taskbar">${taskbarWindows()}</div>
       </div>
     </section>
@@ -740,9 +773,10 @@ function topIdentityStrip(myCurrentSeat) {
           .map(
             (entry) => `
               <article class="identity-strip-card">
-                <button class="identity identity-button identity-strip-button" type="button" data-seat-id="${entry.id}" title="Open DM">
+                <div class="identity identity-strip-button">
                   ${identityName(entry)}
-                </button>
+                  <div class="identity-meta">${hasPublicAnswer(entry.id) ? "Answered" : "Waiting"}</div>
+                </div>
                 ${labelDraftControls(entry)}
               </article>`,
           )
@@ -989,7 +1023,7 @@ function messageHtml(message) {
 }
 
 function publicMessages() {
-  return state.messages.filter((message) => message.channel === "public").map(messageHtml).join("") || `<article class="message"><p>No public messages yet.</p></article>`;
+  return currentRoundMessages().filter((message) => message.channel === "public").map(messageHtml).join("") || `<article class="message"><p>No answers yet.</p></article>`;
 }
 
 function directMessagesFor(otherId) {
@@ -1127,7 +1161,9 @@ function bindCommonEvents() {
     textarea.addEventListener("input", onComposerInput);
   });
   document.querySelectorAll(".identity-button").forEach((button) => {
-    button.addEventListener("click", () => openDmWindow(button.dataset.seatId || ""));
+    button.addEventListener("click", () => {
+      if (activeStatus() !== "playing") openDmWindow(button.dataset.seatId || "");
+    });
   });
   document.querySelectorAll(".focus-dm").forEach((button) => {
     button.addEventListener("click", () => openDmWindow(button.dataset.seatId || ""));
@@ -1623,7 +1659,7 @@ function buildSeats(gameId, aiCount) {
 async function onPublicMessage(event) {
   event.preventDefault();
   const mine = mySeat();
-  if (!mine || messagesFromMe("public").length >= 2) return;
+  if (!mine || messagesFromMe("public").length >= 1) return;
   const body = String(new FormData(event.currentTarget).get("body") || "").trim();
   const sent = await insertMessage(mine.id, "public", body);
   if (sent) {
@@ -1635,6 +1671,7 @@ async function onPublicMessage(event) {
 
 async function onDirectMessage(event) {
   event.preventDefault();
+  if (activeStatus() === "playing") return;
   const mine = mySeat();
   const toSeatId = state.selectedDmSeatId;
   if (messagesFromMe("direct").length >= 4) return;
@@ -1732,7 +1769,7 @@ async function autoSubmitGuesses() {
 async function hostMaintenance() {
   if (!isHost() || !state.room) return;
   const phase = activeStatus();
-  if (phase === "playing" && state.countdown <= 0) {
+  if (phase === "playing" && (state.countdown <= 0 || allSeatsAnswered())) {
     if (state.game.round_number >= settings().roundCount) {
       await supabase.from("games").update({ status: "guessing", round_ends_at: nowPlus(GUESS_SECONDS) }).eq("id", state.game.id);
       await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
@@ -1797,9 +1834,6 @@ async function scoreGame() {
 
 async function runReactiveAiMessages(aiSeats, lockScope) {
   const messages = currentRoundMessages();
-  const directIncoming = messages
-    .filter((message) => message.channel === "direct")
-    .sort((left, right) => messageTime(left) - messageTime(right));
   const publicIncoming = messages
     .filter((message) => message.channel === "public")
     .sort((left, right) => messageTime(left) - messageTime(right));
@@ -1807,48 +1841,15 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
   for (const aiSeat of aiSeats) {
     if (!(await hasMimicSamples(aiSeat))) continue;
     const aiMessages = messages.filter((message) => message.from_seat_id === aiSeat.id);
-
-    for (const incoming of directIncoming.filter((message) => message.to_seat_id === aiSeat.id && message.from_seat_id !== aiSeat.id)) {
-      const directKey = `${lockScope}:${aiSeat.id}:react-direct:${incoming.id}`;
-      const alreadyReplied = aiMessages.some(
-        (message) =>
-          message.channel === "direct" &&
-          message.to_seat_id === incoming.from_seat_id &&
-          messageTime(message) > messageTime(incoming),
-      );
-      const directCount = aiMessages.filter((message) => message.channel === "direct").length;
-      const incomingSeat = seatById(incoming.from_seat_id);
-      const delay =
-        reactionDelaySeconds(`${directKey}:delay`, incomingSeat?.kind === "ai" ? 6 : 4, incomingSeat?.kind === "ai" ? 13 : 10) +
-        aiStaggerSeconds(directKey, aiSeat, 7);
-      if (!alreadyReplied && directCount < 8 && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(directKey)) {
-        state.aiSendLocks.add(directKey);
-        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id, incoming.id, "direct_reply");
-        if (!sent) state.aiSendLocks.delete(directKey);
-      }
-    }
-
-    for (const incoming of publicIncoming.filter((message) => message.from_seat_id !== aiSeat.id)) {
-      const publicKey = `${lockScope}:${aiSeat.id}:react-public:${incoming.id}`;
-      const mentioned = bodyMentionsSeat(incoming.body, aiSeat);
-      const incomingSeat = seatById(incoming.from_seat_id);
-      const responseChance = incomingSeat?.kind === "ai" ? 0.16 : 0.25;
-      const shouldReply = mentioned || stableRandom(`${publicKey}:chance`) <= responseChance;
-      if (!shouldReply) continue;
-
-      const alreadyReplied = aiMessages.some(
-        (message) => message.channel === "public" && messageTime(message) > messageTime(incoming),
-      );
-      const publicCount = aiMessages.filter((message) => message.channel === "public").length;
-      const maxPublicMessages = mentioned ? 4 : 3;
-      const delay =
-        reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : incomingSeat?.kind === "ai" ? 8 : 6, mentioned ? 9 : 16) +
-        aiStaggerSeconds(publicKey, aiSeat, mentioned ? 5 : 10);
-      if (!alreadyReplied && publicCount < maxPublicMessages && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(publicKey)) {
-        state.aiSendLocks.add(publicKey);
-        const sent = await insertAiMessage(aiSeat, "public", null, incoming.id, "public_reply");
-        if (!sent) state.aiSendLocks.delete(publicKey);
-      }
+    if (aiMessages.some((message) => message.channel === "public")) continue;
+    const trigger = publicIncoming.find((message) => message.from_seat_id !== aiSeat.id);
+    if (!trigger) continue;
+    const publicKey = `${lockScope}:${aiSeat.id}:question-answer:${trigger.id}`;
+    const delay = reactionDelaySeconds(`${publicKey}:delay`, 3, 8) + aiStaggerSeconds(publicKey, aiSeat, 14);
+    if (secondsSinceMessage(trigger) >= delay && !state.aiSendLocks.has(publicKey)) {
+      state.aiSendLocks.add(publicKey);
+      const sent = await insertAiMessage(aiSeat, "public", null, trigger.id, "question_answer");
+      if (!sent) state.aiSendLocks.delete(publicKey);
     }
   }
 }
@@ -1862,40 +1863,8 @@ async function runAiRoundMessages() {
     state.aiLockScope = lockScope;
   }
 
-  const elapsed = settings().roundSeconds - state.countdown;
   const aiSeats = state.seats.filter((seat) => seat.kind === "ai");
   await runReactiveAiMessages(aiSeats, lockScope);
-  for (const aiSeat of aiSeats) {
-    if (!(await hasMimicSamples(aiSeat))) continue;
-    const publicKey = `${lockScope}:${aiSeat.id}:public`;
-    const publicCount = state.messages.filter(
-      (message) => message.from_seat_id === aiSeat.id && message.channel === "public" && message.round_number === state.game.round_number,
-    ).length;
-    const publicDelay = aiDelaySeconds("public", publicKey) + aiStaggerSeconds(publicKey, aiSeat, 10);
-    if (publicCount === 0 && elapsed >= publicDelay && !state.aiSendLocks.has(publicKey)) {
-      state.aiSendLocks.add(publicKey);
-      const sent = await insertAiMessage(aiSeat, "public", null, null, "proactive_public");
-      if (!sent) state.aiSendLocks.delete(publicKey);
-    }
-
-    const targets = stableShuffle(state.seats.filter((seat) => seat.kind === "human"), `${lockScope}:${aiSeat.id}:targets`).slice(0, 2);
-    for (const [index, target] of targets.entries()) {
-      const directKey = `${lockScope}:${aiSeat.id}:direct:${target.id}`;
-      const alreadySent = state.messages.some(
-        (message) =>
-          message.from_seat_id === aiSeat.id &&
-          message.to_seat_id === target.id &&
-          message.channel === "direct" &&
-          message.round_number === state.game.round_number,
-      );
-      const directDelay = aiDelaySeconds("direct", `${directKey}:${index}`) + aiStaggerSeconds(`${directKey}:${index}`, aiSeat, 12);
-      if (!alreadySent && elapsed >= directDelay && !state.aiSendLocks.has(directKey)) {
-        state.aiSendLocks.add(directKey);
-        const sent = await insertAiMessage(aiSeat, "direct", target.id, null, "proactive_direct");
-        if (!sent) state.aiSendLocks.delete(directKey);
-      }
-    }
-  }
 }
 
 async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null, replyMode = "proactive") {
@@ -1910,6 +1879,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = nul
       toSeatId,
       triggerMessageId,
       replyMode,
+      question: currentQuestion(),
     },
   });
 
@@ -1991,7 +1961,7 @@ async function generateAiText(aiSeat, triggerMessageId = null) {
   if (samples.length) {
     const trigger = state.messages.find((message) => message.id === triggerMessageId);
     const sample = samples[Math.floor(Math.random() * samples.length)];
-    const source = trigger?.body || sample;
+    const source = currentQuestion() || trigger?.body || sample;
     const words = source.split(/\s+/).filter(Boolean).slice(0, 8).join(" ");
     const tail = FILLER[Math.floor(Math.random() * FILLER.length)];
     return `${words} - ${tail}`.slice(0, settings().charLimit);

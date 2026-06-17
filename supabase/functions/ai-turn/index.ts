@@ -21,7 +21,8 @@ type TurnRequest = {
   channel: "public" | "direct";
   toSeatId?: string;
   triggerMessageId?: string | null;
-  replyMode?: "direct_reply" | "public_reply" | "proactive_direct" | "proactive_public" | "proactive";
+  replyMode?: "direct_reply" | "public_reply" | "proactive_direct" | "proactive_public" | "question_answer" | "proactive";
+  question?: string;
 };
 
 Deno.serve(async (req) => {
@@ -137,6 +138,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
     mimicParticipantId: seat.mimic_participant_id,
     responseChannel: input.channel,
     replyMode: input.replyMode || "proactive",
+    question: input.question || "",
     recentMessages: recentMessages || [],
     threadMessages,
     triggerMessage,
@@ -242,6 +244,7 @@ async function saveTrainingExample(
       roundNumber: context.roundNumber,
       responseChannel: context.responseChannel,
       replyMode: context.replyMode,
+      question: context.question,
       memoryCount: context.memoryCount,
       mimicMessageCount: context.mimicMessages.length,
       threadMessageCount: context.threadMessages.length,
@@ -290,6 +293,8 @@ Hard constraints:
 - Write like a real player in a fast social deduction chat: short, specific, imperfect, and context-aware.
 - This turn will be posted to the ${context.responseChannel} channel. Reply as if you are writing in that exact channel, not another chat.
 - Reply mode: ${context.replyMode}.
+- Current round question: ${context.question || "none provided"}.
+- If reply mode is question_answer, answer the current round question in the target player's style. Do not ask a new question.
 - If there is a trigger message, answer or react to that specific message.
 - If this is a DM, use the current DM thread as the main context and do not sound like you are addressing the whole room.
 - If another AI seat wrote the trigger, treat it as another suspicious anonymous player, not as a teammate.
