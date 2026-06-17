@@ -278,18 +278,25 @@ function windowTitle(id) {
   return id;
 }
 
+function activeStatus() {
+  if (state.room?.status === "results" || state.game?.status === "results") return "results";
+  if (state.game?.status === "playing") return "playing";
+  if (state.room?.status === "guessing" || state.game?.status === "guessing") return "guessing";
+  return state.room?.status || state.phase;
+}
+
 function topbar() {
-  const phase = state.game?.status || state.room?.status || state.phase;
+  const phase = activeStatus();
   const gameLabel = state.room ? `Room ${state.room.code}` : "No room";
   let timer = "--";
-  if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
-  if (state.game?.status === "guessing") timer = `Guesses close in ${state.countdown}s`;
-  if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
-  if (state.game?.status === "playing" || state.game?.status === "guessing") {
-    const hudTitle = state.game.status === "guessing" ? "GUESS_TIMER.EXE" : "GAME_TIMER.EXE";
-    const timerText = state.game.status === "guessing" ? `${state.countdown}s` : `${state.countdown}s`;
+  if (phase === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
+  if (phase === "guessing") timer = `Guesses close in ${state.countdown}s`;
+  if (phase === "results") timer = `Next game ${state.countdown}s`;
+  if (phase === "playing" || phase === "guessing") {
+    const hudTitle = phase === "guessing" ? "GUESS_TIMER.EXE" : "GAME_TIMER.EXE";
+    const timerText = `${state.countdown}s`;
     const roundText =
-      state.game.status === "guessing"
+      phase === "guessing"
         ? "Final labels"
         : `Round ${state.game.round_number}/${settings().roundCount}`;
     return html`
@@ -398,18 +405,19 @@ function render() {
   const focusInfo = captureFocusInfo();
   const scrollPositions = captureScrollPositions();
   const formValues = captureFormValues();
+  const phase = activeStatus();
   const view =
     state.phase === "connect"
       ? renderConnect()
       : state.phase === "invite"
         ? renderInviteJoin()
-        : state.game?.status === "playing"
+        : phase === "playing"
           ? renderGame()
-          : state.room?.status === "guessing" || state.game?.status === "guessing"
-          ? renderGuessing()
-          : state.room?.status === "results" || state.game?.status === "results"
+          : phase === "results"
             ? renderResults()
-            : renderLobby();
+            : phase === "guessing"
+              ? renderGuessing()
+              : renderLobby();
 
   app.innerHTML = html`<main class="app-shell">${topbar()}${view}</main>`;
   bindCommonEvents();
@@ -1269,7 +1277,8 @@ function startLocalTimer() {
   clearInterval(state.tickTimer);
   state.tickTimer = setInterval(async () => {
     updateCountdown();
-    if (state.room?.status === "results" || state.game?.status === "results") {
+    const phase = activeStatus();
+    if (phase === "results") {
       const signature = revealSignature();
       if (signature !== lastRevealSignature) {
         lastRevealSignature = signature;
@@ -1281,7 +1290,7 @@ function startLocalTimer() {
       lastRevealSignature = "";
       updateTimerDisplay();
     }
-    if (state.game?.status === "guessing" && state.countdown <= 0) {
+    if (phase === "guessing" && state.countdown <= 0) {
       await autoSubmitGuesses();
     }
     await hostMaintenance();
@@ -1289,29 +1298,30 @@ function startLocalTimer() {
 }
 
 function updateCountdown() {
-  if (state.game?.status === "playing") state.countdown = secondsUntil(state.game.round_ends_at);
-  else if (state.game?.status === "guessing") state.countdown = secondsUntil(state.game.round_ends_at);
-  else if (state.room?.status === "results") state.countdown = secondsUntil(state.room.next_game_at);
+  const phase = activeStatus();
+  if (phase === "results") state.countdown = secondsUntil(state.room?.next_game_at);
+  else if (phase === "playing") state.countdown = secondsUntil(state.game?.round_ends_at);
+  else if (phase === "guessing") state.countdown = secondsUntil(state.game?.round_ends_at);
   else state.countdown = 0;
 }
 
 function updateTimerDisplay() {
-  const phase = state.game?.status || state.room?.status || state.phase;
+  const phase = activeStatus();
   let timer = "--";
-  if (state.game?.status === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
-  if (state.game?.status === "guessing") timer = `Guesses close in ${state.countdown}s`;
-  if (state.room?.status === "results") timer = `Next game ${state.countdown}s`;
+  if (phase === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
+  if (phase === "guessing") timer = `Guesses close in ${state.countdown}s`;
+  if (phase === "results") timer = `Next game ${state.countdown}s`;
   const phasePill = document.getElementById("phasePill");
   const timerPill = document.getElementById("timerPill");
   const roomPill = document.getElementById("roomPill");
   const roundPill = document.getElementById("roundPill");
   const guessTimerPill = document.getElementById("guessTimerPill");
   if (phasePill) phasePill.textContent = phase;
-  if (timerPill) timerPill.textContent = state.game?.status === "playing" || state.game?.status === "guessing" ? `${state.countdown}s` : timer;
+  if (timerPill) timerPill.textContent = phase === "playing" || phase === "guessing" ? `${state.countdown}s` : timer;
   if (roomPill) roomPill.textContent = state.room ? `Room ${state.room.code}` : "No room";
   if (roundPill) {
     roundPill.textContent =
-      state.game?.status === "guessing" ? "Final labels" : `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
+      phase === "guessing" ? "Final labels" : `Round ${state.game?.round_number || 0}/${settings().roundCount}`;
   }
   if (guessTimerPill) guessTimerPill.textContent = `${state.countdown}s`;
 }
@@ -1554,7 +1564,8 @@ async function autoSubmitGuesses() {
 
 async function hostMaintenance() {
   if (!isHost() || !state.room) return;
-  if (state.game?.status === "playing" && state.countdown <= 0) {
+  const phase = activeStatus();
+  if (phase === "playing" && state.countdown <= 0) {
     if (state.game.round_number >= settings().roundCount) {
       await supabase.from("games").update({ status: "guessing", round_ends_at: nowPlus(GUESS_SECONDS) }).eq("id", state.game.id);
       await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
@@ -1566,17 +1577,17 @@ async function hostMaintenance() {
       .eq("id", state.game.id);
     await refreshAll();
   }
-  if (state.game?.status === "playing") {
+  if (phase === "playing") {
     await runAiRoundMessages();
   }
   if (
-    state.game?.status === "guessing" &&
+    phase === "guessing" &&
     state.participants.length > 0 &&
     (state.countdown <= 0 || state.guesses.length >= state.participants.length)
   ) {
     await scoreGame();
   }
-  if (state.room.status === "results" && state.countdown <= 0) {
+  if (phase === "results" && state.countdown <= 0) {
     await startGame();
   }
 }
@@ -1608,8 +1619,13 @@ async function scoreGame() {
       .eq("id", entry.participant.id);
     await supabase.from("guesses").update({ points: entry.points }).eq("game_id", state.game.id).eq("participant_id", entry.participant.id);
   }
+  const nextGameAt = nowPlus(resultsTimeline().total);
   await supabase.from("games").update({ status: "results" }).eq("id", state.game.id);
-  await supabase.from("rooms").update({ status: "results", next_game_at: nowPlus(resultsTimeline().total) }).eq("id", state.room.id);
+  await supabase.from("rooms").update({ status: "results", next_game_at: nextGameAt }).eq("id", state.room.id);
+  state.game = { ...state.game, status: "results" };
+  state.room = { ...state.room, status: "results", next_game_at: nextGameAt };
+  updateCountdown();
+  render();
 }
 
 async function runReactiveAiMessages(aiSeats, lockScope) {

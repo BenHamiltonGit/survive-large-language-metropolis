@@ -36,6 +36,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Human messages now save into `player_memories`, AI turns backfill embeddings for mimic samples, and successful LLM turns save prompt/context/output rows in `ai_training_examples` for training/evals.
 - Memory/training storage now sanitizes saved text by redacting emails, phone numbers, URLs, obvious secrets/tokens/password-like values, control characters, and oversized payloads.
 - AI conversation flow now reacts to AI-authored direct/public messages too, with lower public AI-to-AI response odds, longer delays, and DM thread context passed into `ai-turn` for better replies.
+- Results/reveal routing now gives `results` status priority over stale `guessing` game state, and scoring immediately updates local room/game state so the reveal screen appears after final labels.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
