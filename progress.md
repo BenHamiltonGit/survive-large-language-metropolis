@@ -39,6 +39,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Results/reveal routing now gives `results` status priority over stale `guessing` game state, and scoring immediately updates local room/game state so the reveal screen appears after final labels.
 - Added Web Audio notifications: a short public-message tone, a three-note DM chime, and a fading "Message limits refreshed" toast when a new playing round/game refreshes allowances.
 - AI messages now wait after generation based on the actual reply length, with typing-speed variance, thinking time, and occasional extra pause before insertion.
+- Tightened AI reply routing with explicit reply modes, trigger/channel validation, public-only board context, DM-thread context, and extra per-AI stagger. Added a top identity/label strip and made room refreshes refetch room status so guests see results/reveal.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.

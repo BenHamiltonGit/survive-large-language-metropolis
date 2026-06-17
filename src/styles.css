@@ -516,6 +516,54 @@ label {
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.35);
 }
 
+.identity-strip {
+  margin-bottom: 10px;
+  padding: 0;
+  background: #fff8e8;
+}
+
+.identity-strip .window-titlebar {
+  background: #8fd14f;
+}
+
+.identity-strip-body {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(210px, 260px);
+  gap: 10px;
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.identity-strip-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  min-width: 0;
+  border: 2px solid var(--line);
+  background: #f2e4c3;
+  padding: 8px;
+  box-shadow: 3px 3px 0 var(--line);
+}
+
+.identity-strip-button {
+  min-height: 44px;
+  padding: 6px;
+}
+
+.identity-strip-card .guess-fields {
+  gap: 7px;
+}
+
+.identity-strip-card .guess-type-buttons {
+  gap: 6px;
+}
+
+.identity-strip-card select {
+  min-height: 34px;
+  font-size: 0.78rem;
+}
+
 .window {
   min-width: 0;
   overflow: hidden;

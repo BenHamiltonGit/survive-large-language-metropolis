@@ -21,6 +21,7 @@ type TurnRequest = {
   channel: "public" | "direct";
   toSeatId?: string;
   triggerMessageId?: string | null;
+  replyMode?: "direct_reply" | "public_reply" | "proactive_direct" | "proactive_public" | "proactive";
 };
 
 Deno.serve(async (req) => {
@@ -86,6 +87,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
       .from("messages")
       .select("body, channel, round_number, from_seat_id")
       .eq("game_id", input.gameId)
+      .eq("channel", "public")
       .order("created_at", { ascending: false })
       .limit(24),
     supabase
@@ -107,6 +109,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
   if (roomError || !room) throw new Error(`Room not found for ai-turn: ${input.roomId}`);
   if (gameError || !game) throw new Error(`Game not found for ai-turn: ${input.gameId}`);
   if (seatError || !seat) throw new Error(`Seat not found for ai-turn: ${input.seatId}`);
+  validateTurnRoute(input, triggerMessage);
 
   const threadMessages =
     input.channel === "direct" && input.toSeatId
@@ -133,6 +136,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
     roundNumber: game.round_number,
     mimicParticipantId: seat.mimic_participant_id,
     responseChannel: input.channel,
+    replyMode: input.replyMode || "proactive",
     recentMessages: recentMessages || [],
     threadMessages,
     triggerMessage,
@@ -140,6 +144,23 @@ async function buildContext(supabase: any, input: TurnRequest) {
     memories,
     memoryCount: memories.length,
   };
+}
+
+function validateTurnRoute(input: TurnRequest, triggerMessage: any) {
+  if (input.channel === "direct" && !input.toSeatId) throw new Error("Direct AI turn missing toSeatId.");
+  if (!triggerMessage) return;
+  if (triggerMessage.channel !== input.channel) {
+    throw new Error(`Trigger channel ${triggerMessage.channel} does not match response channel ${input.channel}.`);
+  }
+  if (input.channel === "direct") {
+    const isThreadMessage =
+      (triggerMessage.from_seat_id === input.seatId && triggerMessage.to_seat_id === input.toSeatId) ||
+      (triggerMessage.from_seat_id === input.toSeatId && triggerMessage.to_seat_id === input.seatId);
+    if (!isThreadMessage) throw new Error("Direct trigger is not in the requested DM thread.");
+  }
+  if (input.channel === "public" && triggerMessage.to_seat_id) {
+    throw new Error("Public AI turn cannot reply to a direct trigger.");
+  }
 }
 
 async function retrieveMemories(supabase: any, participantId: string) {
@@ -220,6 +241,7 @@ async function saveTrainingExample(
     context: {
       roundNumber: context.roundNumber,
       responseChannel: context.responseChannel,
+      replyMode: context.replyMode,
       memoryCount: context.memoryCount,
       mimicMessageCount: context.mimicMessages.length,
       threadMessageCount: context.threadMessages.length,
@@ -267,6 +289,7 @@ Hard constraints:
 - Avoid assistant phrases like "what's on your mind", "how can I help", "just hanging out", or generic customer-support tone.
 - Write like a real player in a fast social deduction chat: short, specific, imperfect, and context-aware.
 - This turn will be posted to the ${context.responseChannel} channel. Reply as if you are writing in that exact channel, not another chat.
+- Reply mode: ${context.replyMode}.
 - If there is a trigger message, answer or react to that specific message.
 - If this is a DM, use the current DM thread as the main context and do not sound like you are addressing the whole room.
 - If another AI seat wrote the trigger, treat it as another suspicious anonymous player, not as a teammate.
@@ -283,7 +306,7 @@ ${context.triggerMessage ? `- ${context.triggerMessage.channel} R${context.trigg
 Current DM thread, oldest to newest:
 ${context.threadMessages.length ? context.threadMessages.map((message: any) => `- R${message.round_number}: ${message.body}`).join("\n") : "- not a DM thread"}
 
-Recent room transcript, including public messages and DMs:
+Recent public board transcript:
 ${context.recentMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}
 `;
 }

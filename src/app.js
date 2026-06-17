@@ -206,6 +206,10 @@ function reactionDelaySeconds(seed, min = 4, max = 12) {
   return state.aiDelayCache.get(seed);
 }
 
+function aiStaggerSeconds(seed, aiSeat, max = 8) {
+  return Math.round(stableRandom(`${seed}:${aiSeat.id}:stagger`) * max);
+}
+
 function isHost() {
   return Boolean(state.participant?.is_host);
 }
@@ -402,7 +406,13 @@ function topbar() {
 
 function captureFocusInfo() {
   const el = document.activeElement;
-  if (!el || !app.contains(el) || !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return null;
+  if (
+    !el ||
+    !app.contains(el) ||
+    !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)
+  ) {
+    return null;
+  }
   return {
     formId: el.closest("form")?.id || "",
     name: el.name || "",
@@ -451,16 +461,18 @@ function restoreScrollPositions(positions) {
 
 function captureFormValues() {
   const values = {};
-  document.querySelectorAll("[data-preserve-values] [name]").forEach((el) => {
-    values[el.name] = el.value;
+  document.querySelectorAll("[name]").forEach((el) => {
+    const key = `${el.closest("form")?.id || "global"}:${el.name}`;
+    values[key] = el.value;
   });
   return values;
 }
 
 function restoreFormValues(values) {
   if (!values) return;
-  document.querySelectorAll("[data-preserve-values] [name]").forEach((el) => {
-    if (Object.prototype.hasOwnProperty.call(values, el.name)) el.value = values[el.name];
+  document.querySelectorAll("[name]").forEach((el) => {
+    const key = `${el.closest("form")?.id || "global"}:${el.name}`;
+    if (Object.prototype.hasOwnProperty.call(values, key)) el.value = values[key];
   });
 }
 
@@ -657,6 +669,7 @@ function renderGame() {
   const s = settings();
   const publicLeft = Math.max(0, 2 - messagesFromMe("public").length);
   const dmLeft = Math.max(0, 4 - messagesFromMe("direct").length);
+  const identityStrip = topIdentityStrip(seat);
   const monitorBody = `
     <div class="window-body" data-scroll-id="monitor">
       <div class="panel-section">
@@ -697,27 +710,42 @@ function renderGame() {
       </div>
     </form>
   `;
-  const labelsBody = `
-    <div class="window-body label-notes" data-scroll-id="label-notes">
-      <div class="section-title"><span>Draft labels</span></div>
-      ${state.seats
-        .filter((entry) => entry.id !== seat?.id)
-        .map((entry) => labelDraftRow(entry))
-        .join("")}
-    </div>
-  `;
   return html`
     <section class="game-view">
+      ${identityStrip}
       <div class="desktop-surface">
         ${desktopWindow("monitor", "PLAYER_MONITOR.SYS", monitorBody, "monitor-window")}
         ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
         ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
-        ${desktopWindow("labels", "LABEL_NOTES.EXE", labelsBody, "labels-window")}
         ${dmWindows(dmLeft)}
         <div class="desktop-taskbar">${taskbarWindows()}</div>
       </div>
     </section>
   `;
+}
+
+function topIdentityStrip(myCurrentSeat) {
+  return `
+    <section class="identity-strip window">
+      <div class="window-titlebar">
+        <span>IDENTITY_BAR.EXE</span>
+        <span class="window-controls">_ [] X</span>
+      </div>
+      <div class="identity-strip-body">
+        ${state.seats
+          .filter((entry) => entry.id !== myCurrentSeat?.id)
+          .map(
+            (entry) => `
+              <article class="identity-strip-card">
+                <button class="identity identity-button identity-strip-button" type="button" data-seat-id="${entry.id}" title="Open DM">
+                  ${identityName(entry)}
+                </button>
+                ${labelDraftControls(entry)}
+              </article>`,
+          )
+          .join("")}
+      </div>
+    </section>`;
 }
 
 function renderGuessing() {
@@ -1048,6 +1076,14 @@ function guessCard(seat) {
 }
 
 function labelDraftRow(seat) {
+  return `
+    <div class="label-draft-row">
+      ${identityName(seat)}
+      ${labelDraftControls(seat)}
+    </div>`;
+}
+
+function labelDraftControls(seat) {
   const draft = state.guessDrafts[seat.id] || {};
   const humanOptions = [`<option value="">No human match</option>`]
     .concat(
@@ -1060,9 +1096,7 @@ function labelDraftRow(seat) {
     )
     .join("");
   return `
-    <div class="label-draft-row">
-      ${identityName(seat)}
-      <div class="guess-fields">
+    <div class="guess-fields">
         <div class="guess-type-buttons" role="group" aria-label="Choose identity type for ${escapeHtml(seat.alias)}">
           <button class="guess-type-button ${draft.kind === "human" ? "selected" : ""}" type="button" data-seat-id="${seat.id}" data-kind="human">Human</button>
           <button class="guess-type-button ${draft.kind === "ai" ? "selected" : ""}" type="button" data-seat-id="${seat.id}" data-kind="ai">AI</button>
@@ -1072,7 +1106,6 @@ function labelDraftRow(seat) {
             ? `<label>Bonus human match<select class="guess-human-select" name="${seat.id}-human" data-seat-id="${seat.id}">${humanOptions}</select></label>`
             : `<input type="hidden" name="${seat.id}-human" value="" />`
         }
-      </div>
     </div>`;
 }
 
@@ -1302,15 +1335,20 @@ async function loadRoom(code) {
 
 async function refreshAll() {
   if (!state.room) return;
+  const keepLabelSelectOpen =
+    document.activeElement instanceof HTMLSelectElement && document.activeElement.classList.contains("guess-human-select");
   const previousMessageIds = new Set(state.knownMessageIds);
   const previousRoundKey = state.lastPlayingRoundKey;
-  const [participantsRes, gamesRes] = await Promise.all([
+  const [roomRes, participantsRes, gamesRes] = await Promise.all([
+    supabase.from("rooms").select("*").eq("id", state.room.id).single(),
     supabase.from("participants").select("*").eq("room_id", state.room.id).is("left_at", null).order("created_at"),
     supabase.from("games").select("*").eq("room_id", state.room.id).order("created_at", { ascending: false }).limit(1),
   ]);
+  if (roomRes.data) state.room = roomRes.data;
   state.participants = participantsRes.data || [];
   state.participant = state.participants.find((participant) => participant.id === local.participantId) || null;
   state.game = gamesRes.data?.[0] || null;
+  if (state.room?.status === "results" && state.game) state.game = { ...state.game, status: "results" };
 
   if (state.game) {
     const [seatsRes, messagesRes, guessesRes] = await Promise.all([
@@ -1331,6 +1369,11 @@ async function refreshAll() {
     state.hasSeenPlayingRound = false;
   }
   updateCountdown();
+  if (keepLabelSelectOpen && activeStatus() === "playing") {
+    updateTimerDisplay();
+    await hostMaintenance();
+    return;
+  }
   render();
   await hostMaintenance();
 }
@@ -1760,10 +1803,12 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       );
       const directCount = aiMessages.filter((message) => message.channel === "direct").length;
       const incomingSeat = seatById(incoming.from_seat_id);
-      const delay = reactionDelaySeconds(`${directKey}:delay`, incomingSeat?.kind === "ai" ? 6 : 4, incomingSeat?.kind === "ai" ? 13 : 10);
+      const delay =
+        reactionDelaySeconds(`${directKey}:delay`, incomingSeat?.kind === "ai" ? 6 : 4, incomingSeat?.kind === "ai" ? 13 : 10) +
+        aiStaggerSeconds(directKey, aiSeat, 7);
       if (!alreadyReplied && directCount < 8 && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(directKey)) {
         state.aiSendLocks.add(directKey);
-        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id, incoming.id);
+        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id, incoming.id, "direct_reply");
         if (!sent) state.aiSendLocks.delete(directKey);
       }
     }
@@ -1781,10 +1826,12 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       );
       const publicCount = aiMessages.filter((message) => message.channel === "public").length;
       const maxPublicMessages = mentioned ? 4 : 3;
-      const delay = reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : incomingSeat?.kind === "ai" ? 8 : 6, mentioned ? 9 : 16);
+      const delay =
+        reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : incomingSeat?.kind === "ai" ? 8 : 6, mentioned ? 9 : 16) +
+        aiStaggerSeconds(publicKey, aiSeat, mentioned ? 5 : 10);
       if (!alreadyReplied && publicCount < maxPublicMessages && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(publicKey)) {
         state.aiSendLocks.add(publicKey);
-        const sent = await insertAiMessage(aiSeat, "public", null, incoming.id);
+        const sent = await insertAiMessage(aiSeat, "public", null, incoming.id, "public_reply");
         if (!sent) state.aiSendLocks.delete(publicKey);
       }
     }
@@ -1809,10 +1856,10 @@ async function runAiRoundMessages() {
     const publicCount = state.messages.filter(
       (message) => message.from_seat_id === aiSeat.id && message.channel === "public" && message.round_number === state.game.round_number,
     ).length;
-    const publicDelay = aiDelaySeconds("public", publicKey);
+    const publicDelay = aiDelaySeconds("public", publicKey) + aiStaggerSeconds(publicKey, aiSeat, 10);
     if (publicCount === 0 && elapsed >= publicDelay && !state.aiSendLocks.has(publicKey)) {
       state.aiSendLocks.add(publicKey);
-      const sent = await insertAiMessage(aiSeat, "public", null);
+      const sent = await insertAiMessage(aiSeat, "public", null, null, "proactive_public");
       if (!sent) state.aiSendLocks.delete(publicKey);
     }
 
@@ -1826,17 +1873,17 @@ async function runAiRoundMessages() {
           message.channel === "direct" &&
           message.round_number === state.game.round_number,
       );
-      const directDelay = aiDelaySeconds("direct", `${directKey}:${index}`);
+      const directDelay = aiDelaySeconds("direct", `${directKey}:${index}`) + aiStaggerSeconds(`${directKey}:${index}`, aiSeat, 12);
       if (!alreadySent && elapsed >= directDelay && !state.aiSendLocks.has(directKey)) {
         state.aiSendLocks.add(directKey);
-        const sent = await insertAiMessage(aiSeat, "direct", target.id);
+        const sent = await insertAiMessage(aiSeat, "direct", target.id, null, "proactive_direct");
         if (!sent) state.aiSendLocks.delete(directKey);
       }
     }
   }
 }
 
-async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null) {
+async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = null, replyMode = "proactive") {
   if (LOCAL_AI_ONLY) return insertLocalAiMessage(aiSeat, channel, toSeatId, triggerMessageId);
 
   const { data, error } = await supabase.functions.invoke("ai-turn", {
@@ -1847,6 +1894,7 @@ async function insertAiMessage(aiSeat, channel, toSeatId, triggerMessageId = nul
       channel,
       toSeatId,
       triggerMessageId,
+      replyMode,
     },
   });
 
