@@ -8,23 +8,14 @@ const supabaseReady = Boolean(SUPABASE_URL && SUPABASE_PUBLIC_KEY);
 const supabase = supabaseReady ? createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY) : null;
 const LOCAL_AI_ONLY = import.meta.env.DEV || import.meta.env.VITE_USE_LOCAL_AI_ONLY === "true";
 const GUESS_SECONDS = 30;
+const REVEAL_GUESS_STAGGER = 2;
+const REVEAL_TRUTH_HOLD = 5;
+const REVEAL_SEAT_GAP = 1;
+const REVEAL_FINAL_HOLD = 8;
 
-const BOT_NAMES = [
-  "Clippy Prime",
-  "Null Susan",
-  "Captcha Kid",
-  "Regex Romeo",
-  "Cache Cowboy",
-  "Syntax Violet",
-  "Token Tony",
-  "Vector Vera",
-  "Model Mabel",
-  "Latency Lou",
-  "Cursor Jade",
-  "Patch Nora",
-];
-const ICONS = ["AI", "DM", "404", "OK", "JS", "SQL", "TXT", "CPU", "RAM", "UX", "API", "CLI"];
 const COLORS = ["#6ee7b7", "#f7c948", "#8bd3ff", "#fca5a5", "#c4b5fd", "#fdba74", "#a7f3d0", "#f0abfc"];
+const COLOR_NAMES = ["Mint", "Gold", "Sky", "Red", "Violet", "Orange", "Teal", "Pink"];
+const PALETTE = COLORS.map((color, index) => ({ color, name: COLOR_NAMES[index], icon: COLOR_NAMES[index][0] }));
 const FILLER = [
   "that tracks",
   "wait, maybe",
@@ -53,14 +44,17 @@ const state = {
   messages: [],
   guesses: [],
   guessDrafts: {},
+  drafts: { public: "", direct: {} },
   selectedDmSeatId: "",
   countdown: 0,
   tickTimer: null,
   realtimeChannel: null,
   aiSendLocks: new Set(),
+  aiDelayCache: new Map(),
   aiLockScope: "",
   isStartingGame: false,
   isAutoSubmittingGuesses: false,
+  guessFormError: "",
   lobbyNotice: "",
   inviteCode: "",
   inviteRoom: null,
@@ -115,12 +109,16 @@ function stableShuffle(items, seed) {
 }
 
 function aiDelaySeconds(kind, seed) {
-  const roundSeconds = settings().roundSeconds;
-  const earliest = Math.min(Math.max(4, Math.floor(roundSeconds * 0.16)), 10);
-  const latest = Math.max(earliest + 1, roundSeconds - Math.min(8, Math.floor(roundSeconds * 0.18)));
-  const band = kind === "public" ? [0.15, 0.45] : [0.35, 0.88];
-  const offset = band[0] + stableRandom(seed) * (band[1] - band[0]);
-  return Math.min(latest, Math.max(earliest, Math.round(earliest + (latest - earliest) * offset)));
+  if (!state.aiDelayCache.has(seed)) {
+    const roundSeconds = settings().roundSeconds;
+    const earliest = Math.min(Math.max(4, Math.floor(roundSeconds * 0.16)), 10);
+    const latest = Math.max(earliest + 1, roundSeconds - Math.min(8, Math.floor(roundSeconds * 0.18)));
+    const band = kind === "public" ? [0.15, 0.45] : [0.35, 0.88];
+    const offset = band[0] + Math.random() * (band[1] - band[0]);
+    const delay = Math.min(latest, Math.max(earliest, Math.round(earliest + (latest - earliest) * offset)));
+    state.aiDelayCache.set(seed, delay);
+  }
+  return state.aiDelayCache.get(seed);
 }
 
 function isHost() {
@@ -182,7 +180,7 @@ function defaultWindowMeta(id) {
   const dmIndex = id.startsWith("dm-") ? Math.max(0, state.seats.findIndex((seat) => `dm-${seat.id}` === id)) : 0;
   const defaults = {
     monitor: { x: 14, y: 14, w: 280, z: 3 },
-    labels: { x: 14, y: 374, w: 280, z: 4 },
+    labels: { x: 14, y: 410, w: 280, z: 4 },
     public: { x: 310, y: 14, w: 570, z: 5 },
     identities: { x: 900, y: 14, w: 360, z: 3 },
   };
@@ -290,7 +288,74 @@ function topbar() {
   `;
 }
 
+function captureFocusInfo() {
+  const el = document.activeElement;
+  if (!el || !app.contains(el) || !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return null;
+  return {
+    formId: el.closest("form")?.id || "",
+    name: el.name || "",
+    id: el.id || "",
+    selectionStart: el.selectionStart,
+    selectionEnd: el.selectionEnd,
+    scrollTop: el.scrollTop,
+  };
+}
+
+function restoreFocusInfo(info) {
+  if (!info) return;
+  let el = null;
+  if (info.formId && info.name) {
+    el = document.getElementById(info.formId)?.querySelector(`[name="${info.name}"]`) || null;
+  } else if (info.id) {
+    el = document.getElementById(info.id);
+  }
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  el.scrollTop = info.scrollTop;
+  if (typeof info.selectionStart === "number" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+    try {
+      el.setSelectionRange(info.selectionStart, info.selectionEnd);
+    } catch {
+      // selection range not supported for this input type; ignore
+    }
+  }
+}
+
+function captureScrollPositions() {
+  const positions = {};
+  document.querySelectorAll("[data-scroll-id]").forEach((el) => {
+    positions[el.dataset.scrollId] = el.scrollTop;
+  });
+  return positions;
+}
+
+function restoreScrollPositions(positions) {
+  if (!positions) return;
+  document.querySelectorAll("[data-scroll-id]").forEach((el) => {
+    const top = positions[el.dataset.scrollId];
+    if (typeof top === "number") el.scrollTop = top;
+  });
+}
+
+function captureFormValues() {
+  const values = {};
+  document.querySelectorAll("[data-preserve-values] [name]").forEach((el) => {
+    values[el.name] = el.value;
+  });
+  return values;
+}
+
+function restoreFormValues(values) {
+  if (!values) return;
+  document.querySelectorAll("[data-preserve-values] [name]").forEach((el) => {
+    if (Object.prototype.hasOwnProperty.call(values, el.name)) el.value = values[el.name];
+  });
+}
+
 function render() {
+  const focusInfo = captureFocusInfo();
+  const scrollPositions = captureScrollPositions();
+  const formValues = captureFormValues();
   const view =
     state.phase === "connect"
       ? renderConnect()
@@ -306,6 +371,9 @@ function render() {
 
   app.innerHTML = html`<main class="app-shell">${topbar()}${view}</main>`;
   bindCommonEvents();
+  restoreFormValues(formValues);
+  restoreFocusInfo(focusInfo);
+  restoreScrollPositions(scrollPositions);
 }
 
 function renderInviteJoin() {
@@ -445,7 +513,7 @@ function renderLobby() {
         </div>
         ${isHost()
           ? html`
-              <form id="settingsForm">
+              <form id="settingsForm" data-preserve-values>
                 <div class="form-grid">
                   <label>Number of AI's<input name="aiCount" type="number" min="1" max="8" value="${summary.aiCount}" /></label>
                   <label>Rounds<input name="roundCount" type="number" min="1" max="8" value="${summary.roundCount}" /></label>
@@ -469,11 +537,10 @@ function renderLobby() {
 function renderGame() {
   const seat = mySeat();
   const s = settings();
-  const publicLeft = Math.max(0, 1 - messagesFromMe("public").length);
-  const newDmLeft = Math.max(0, 2 - newDmsFromMe().length);
-  const replyLeft = Math.max(0, 2 - repliesFromMe().length);
+  const publicLeft = Math.max(0, 2 - messagesFromMe("public").length);
+  const dmLeft = Math.max(0, 4 - messagesFromMe("direct").length);
   const monitorBody = `
-    <div class="window-body">
+    <div class="window-body" data-scroll-id="monitor">
       <div class="panel-section">
         <div class="section-title"><span>You are</span></div>
         <div class="identity">${seat ? identityName(seat) : "No seat yet"}</div>
@@ -482,8 +549,7 @@ function renderGame() {
         <div class="section-title"><span>Allowances</span></div>
         <div class="allowances">
           <div class="allowance"><span>Public</span><strong>${publicLeft}</strong></div>
-          <div class="allowance"><span>New DMs</span><strong>${newDmLeft}</strong></div>
-          <div class="allowance"><span>Replies</span><strong>${replyLeft}</strong></div>
+          <div class="allowance"><span>DMs</span><strong>${dmLeft}</strong></div>
           <div class="allowance"><span>Character limit</span><strong>${s.charLimit}</strong></div>
         </div>
       </div>
@@ -504,19 +570,22 @@ function renderGame() {
     )
     .join("")}</div>`;
   const publicBody = `
-    <div class="message-list">${publicMessages()}</div>
+    <div class="message-list" data-scroll-id="board-public">${publicMessages()}</div>
     <form id="publicForm" class="composer">
-      <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="One public post this round"></textarea>
+      <textarea name="body" rows="2" maxlength="${s.charLimit}" placeholder="Public posts this round">${escapeHtml(state.drafts.public)}</textarea>
       <div class="composer-row">
-        <span class="counter">character limit ${s.charLimit}</span>
+        <span class="counter">${publicLeft} left / character limit ${s.charLimit}</span>
         <button type="submit" ${publicLeft <= 0 ? "disabled" : ""}>Post</button>
       </div>
     </form>
   `;
   const labelsBody = `
-    <div class="window-body label-notes">
+    <div class="window-body label-notes" data-scroll-id="label-notes">
       <div class="section-title"><span>Draft labels</span></div>
-      ${state.seats.map((entry) => labelDraftRow(entry)).join("")}
+      ${state.seats
+        .filter((entry) => entry.id !== seat?.id)
+        .map((entry) => labelDraftRow(entry))
+        .join("")}
     </div>
   `;
   return html`
@@ -526,7 +595,7 @@ function renderGame() {
         ${desktopWindow("identities", "IDENTITIES.DIR", identitiesBody, "identities-window")}
         ${desktopWindow("public", "PUBLIC_BOARD.EXE", publicBody, "board-window")}
         ${desktopWindow("labels", "LABEL_NOTES.EXE", labelsBody, "labels-window")}
-        ${dmWindows(newDmLeft, replyLeft)}
+        ${dmWindows(dmLeft)}
         <div class="desktop-taskbar">${taskbarWindows()}</div>
       </div>
     </section>
@@ -556,14 +625,151 @@ function renderGuessing() {
       ${submitted
         ? `<div class="notice">Your guesses are in. Waiting for everyone else.</div>`
         : html`<form id="guessForm" class="guess-grid">
-            ${state.seats.map(guessCard).join("")}
-            <button class="primary guess-submit" type="submit">Submit guesses</button>
+            ${state.seats
+              .filter((seat) => seat.id !== mySeat()?.id)
+              .map(guessCard)
+              .join("")}
+            <div class="guess-submit-row">
+              <button class="primary guess-submit" type="submit">Submit guesses</button>
+              ${state.guessFormError ? `<span class="guess-form-error">${escapeHtml(state.guessFormError)}</span>` : ""}
+            </div>
           </form>`}
     </section>
   `;
 }
 
+function resultsTimeline() {
+  const numSeats = Math.max(1, state.seats.length);
+  const numGuessers = Math.max(1, state.participants.length);
+  const perSeat = numGuessers * REVEAL_GUESS_STAGGER + REVEAL_TRUTH_HOLD + REVEAL_SEAT_GAP;
+  const seatsDuration = numSeats * perSeat;
+  return { perSeat, seatsDuration, numGuessers, numSeats, total: seatsDuration + REVEAL_FINAL_HOLD };
+}
+
+function guessEntryFor(participantId, seatId) {
+  const submitted = state.guesses.find((guess) => guess.participant_id === participantId);
+  return submitted?.guesses?.find((entry) => entry.seatId === seatId) || null;
+}
+
+function pointsForEntry(seat, entry) {
+  if (!entry) return 0;
+  let points = 0;
+  if (entry.kind === seat.kind) points += 2;
+  if (seat.kind === "human" && entry.participantId === seat.participant_id) points += 2;
+  return points;
+}
+
+function seatTruthLabel(seat) {
+  const swatch = (text) => `<span style="color:${seat.color};font-weight:800">${text}</span>`;
+  return seat.kind === "human"
+    ? `Human &mdash; ${swatch(escapeHtml(participantById(seat.participant_id)?.display_name || "Unknown"))}`
+    : swatch(`AI impersonating ${escapeHtml(participantById(seat.mimic_participant_id)?.display_name || "Unknown")}`);
+}
+
+function guessLabel(entry) {
+  if (!entry || !entry.kind || entry.kind === "unanswered") return "didn't lock in a guess";
+  if (entry.kind === "ai") return "says <strong>AI</strong>";
+  const bet = entry.participantId ? participantById(entry.participantId)?.display_name : null;
+  return bet ? `says <strong>human</strong> &mdash; betting it's <strong>${coloredName(entry.participantId, bet)}</strong>` : "says <strong>human</strong>";
+}
+
+function seatHeaderName(seat, revealed) {
+  if (!revealed) return identityName(seat);
+  const label =
+    seat.kind === "human"
+      ? escapeHtml(participantById(seat.participant_id)?.display_name || "Unknown")
+      : `AI impersonating ${escapeHtml(participantById(seat.mimic_participant_id)?.display_name || "Unknown")}`;
+  return `<div class="identity-name"><span class="avatar" style="background:${seat.color}">${escapeHtml(seat.icon)}</span><span style="color:${seat.color};font-weight:800">${label}</span></div>`;
+}
+
+function seatRevealCard(seat, revealedCount, stage, isActive) {
+  const lines = state.participants
+    .map((participant, index) => {
+      const visible = index < revealedCount;
+      if (!visible) return `<div class="reveal-line pending"><span class="reveal-placeholder">&middot;&middot;&middot;</span></div>`;
+      const entry = guessEntryFor(participant.id, seat.id);
+      const points = stage === "truth" ? pointsForEntry(seat, entry) : null;
+      const isNewest = isActive && stage === "cascade" && index === revealedCount - 1;
+      return `
+        <div class="reveal-line shown ${isNewest ? "just-in" : ""}">
+          <span class="reveal-name">${coloredName(participant.id, participant.display_name)}</span>
+          <span class="reveal-guess">${guessLabel(entry)}</span>
+          ${points !== null ? `<span class="reveal-points ${points > 0 ? "earned" : "zero"}">+${points}</span>` : ""}
+        </div>`;
+    })
+    .join("");
+
+  return `
+    <article class="reveal-stage window ${isActive ? "active" : "settled"}">
+      <div class="window-titlebar">
+        <span>${escapeHtml(seat.alias)}.LOG</span>
+        <span class="window-controls">_ [] X</span>
+      </div>
+      <div class="window-body">
+        <div class="reveal-stage-head">${seatHeaderName(seat, stage === "truth")}</div>
+        <div class="reveal-lines">${lines}</div>
+        ${stage === "truth" ? `<div class="reveal-truth-banner ${isActive ? "pop" : ""}">${seatTruthLabel(seat)}</div>` : ""}
+      </div>
+    </article>`;
+}
+
+function revealProgress() {
+  const timeline = resultsTimeline();
+  const elapsed = Math.min(timeline.total, Math.max(0, timeline.total - state.countdown));
+  const seats = state.seats;
+  if (seats.length === 0 || elapsed >= timeline.seatsDuration) {
+    return { done: true, timeline, seats };
+  }
+  const seatIndex = Math.min(seats.length - 1, Math.floor(elapsed / timeline.perSeat));
+  const withinSeat = elapsed - seatIndex * timeline.perSeat;
+  const cascadeEnd = timeline.numGuessers * REVEAL_GUESS_STAGGER;
+  const stage = withinSeat < cascadeEnd ? "cascade" : "truth";
+  const revealedCount =
+    stage === "cascade" ? Math.min(timeline.numGuessers, Math.floor(withinSeat / REVEAL_GUESS_STAGGER) + 1) : timeline.numGuessers;
+  return { done: false, timeline, seats, seatIndex, stage, revealedCount };
+}
+
+function revealSignature() {
+  if (state.room?.status !== "results" && state.game?.status !== "results") return "";
+  const progress = revealProgress();
+  if (progress.done) return "final";
+  return `cascade:${progress.seatIndex}:${progress.stage}:${progress.revealedCount}`;
+}
+
 function renderResults() {
+  const progress = revealProgress();
+  if (progress.done) return renderFinalStandings();
+  const { seats, seatIndex, stage, revealedCount, timeline } = progress;
+
+  const cards = seats
+    .slice(0, seatIndex + 1)
+    .map((seat, index) => {
+      if (index < seatIndex) return seatRevealCard(seat, timeline.numGuessers, "truth", false);
+      return seatRevealCard(seat, revealedCount, stage, true);
+    })
+    .join("");
+
+  return html`
+    <section class="results-view reveal-view">
+      <div class="results-head window">
+        <div class="window-titlebar">
+          <span>SCORE_REVEAL.LOG</span>
+          <span class="window-controls">_ [] X</span>
+        </div>
+        <div class="window-body header-window-body">
+          <div>
+            <p class="eyebrow">Identity ${seatIndex + 1} of ${seats.length}</p>
+            <h2>Who was this?</h2>
+          </div>
+          <div class="countdown">Next identity soon</div>
+        </div>
+      </div>
+      <div class="reveal-track" id="revealTrack" data-seat-index="${seatIndex}">${cards}</div>
+    </section>
+  `;
+}
+
+function renderFinalStandings() {
   const winnerPoints = Math.max(...state.participants.map((participant) => participant.last_points || 0), 0);
   const winners = state.participants.filter((participant) => participant.last_points === winnerPoints);
   return html`
@@ -575,21 +781,18 @@ function renderResults() {
         </div>
         <div class="window-body header-window-body">
           <div>
-          <p class="eyebrow">Results</p>
-          <h2>${escapeHtml(winners.map((winner) => winner.display_name).join(", ") || "No winner")} won</h2>
+          <p class="eyebrow">Final standings</p>
+          <h2>${winners.map((winner) => coloredName(winner.id, winner.display_name)).join(", ") || "No winner"} won</h2>
           </div>
-          <div class="countdown">Next game in ${state.countdown}</div>
+          <div class="countdown" id="resultsCountdown">Next game in ${state.countdown}</div>
         </div>
       </div>
       <div class="results-grid">
         ${state.seats
-          .map((seat) => {
-            const truth =
-              seat.kind === "human"
-                ? `Human: ${escapeHtml(participantById(seat.participant_id)?.display_name || "Unknown")}`
-                : `AI, mimicking ${escapeHtml(participantById(seat.mimic_participant_id)?.display_name || "Unknown")}`;
-            return `<article class="reveal-card window"><div class="window-titlebar"><span>${escapeHtml(seat.alias)}.ID</span><span class="window-controls">_ [] X</span></div><div class="window-body"><h3>${identityName(seat)}</h3><p>${truth}</p></div></article>`;
-          })
+          .map(
+            (seat) =>
+              `<article class="reveal-card window"><div class="window-titlebar"><span>${escapeHtml(seat.alias)}.ID</span><span class="window-controls">_ [] X</span></div><div class="window-body"><h3>${identityName(seat)}</h3><p>${seatTruthLabel(seat)}</p></div></article>`,
+          )
           .join("")}
         <article class="reveal-card window"><div class="window-titlebar"><span>STANDINGS.TXT</span><span class="window-controls">_ [] X</span></div><div class="window-body"><h3>Table standings</h3>${scoreboardRows(true)}</div></article>
       </div>
@@ -598,7 +801,18 @@ function renderResults() {
 }
 
 function identityName(seat) {
-  return `<div class="identity-name"><span class="avatar" style="background:${seat.color}">${escapeHtml(seat.icon)}</span>${escapeHtml(seat.alias)}</div>`;
+  return `<div class="identity-name"><span class="avatar" style="background:${seat.color}">${escapeHtml(seat.icon)}</span><span style="color:${seat.color};font-weight:800">${escapeHtml(seat.alias)}</span></div>`;
+}
+
+function participantColor(participantId) {
+  const seat = state.seats.find((entry) => entry.kind === "human" && entry.participant_id === participantId);
+  return seat?.color || null;
+}
+
+function coloredName(participantId, name) {
+  const color = participantColor(participantId);
+  const safeName = escapeHtml(name || "Unknown");
+  return color ? `<span style="color:${color};font-weight:950;text-shadow:0 0 1px rgba(31,27,22,0.55)">${safeName}</span>` : safeName;
 }
 
 function scoreboardRows(showLast = false) {
@@ -606,7 +820,7 @@ function scoreboardRows(showLast = false) {
     .map(
       (participant) => `
         <div class="${showLast ? "result-row" : "score-row"}">
-          <strong>${escapeHtml(participant.display_name)}</strong>
+          <strong>${coloredName(participant.id, participant.display_name)}</strong>
           <span>${showLast ? `+${participant.last_points || 0} / ` : ""}${participant.total_points} pts / ${participant.wins} wins</span>
         </div>`,
     )
@@ -616,10 +830,11 @@ function scoreboardRows(showLast = false) {
 function messageHtml(message) {
   const from = seatById(message.from_seat_id);
   const to = message.to_seat_id ? seatById(message.to_seat_id) : null;
-  const label = to ? `${from?.alias || "Unknown"} to ${to.alias}` : from?.alias || "Unknown";
+  const fromSpan = `<span style="color:${from?.color || "inherit"};font-weight:800">${escapeHtml(from?.alias || "Unknown")}</span>`;
+  const label = to ? `${fromSpan} to ${escapeHtml(to.alias)}` : fromSpan;
   return `
     <article class="message" style="border-left-color:${from?.color || "#343945"}">
-      <div class="message-head"><span>${escapeHtml(label)}</span><span>R${message.round_number}</span></div>
+      <div class="message-head"><span>${label}</span><span>R${message.round_number}</span></div>
       <p>${escapeHtml(message.body)}</p>
     </article>`;
 }
@@ -639,7 +854,27 @@ function directMessagesFor(otherId) {
   return messages.map(messageHtml).join("") || `<article class="message"><p>No DMs in this thread.</p></article>`;
 }
 
-function dmWindows(newDmLeft, replyLeft) {
+function dmPreviewLine(otherId) {
+  const mine = mySeat();
+  const messages = state.messages.filter(
+    (message) =>
+      message.channel === "direct" &&
+      ((message.from_seat_id === mine?.id && message.to_seat_id === otherId) ||
+        (message.from_seat_id === otherId && message.to_seat_id === mine?.id)),
+  );
+  const latest = messages[messages.length - 1];
+  if (!latest) return `<p class="dm-preview-body">No messages yet &mdash; click to start a DM.</p>`;
+  const from = seatById(latest.from_seat_id);
+  const isMine = from?.id === mine?.id;
+  const fromLabel = isMine
+    ? "You"
+    : `<span style="color:${from?.color || "inherit"};font-weight:800">${escapeHtml(from?.alias || "Unknown")}</span>`;
+  return `
+    <div class="dm-preview-meta"><span>${fromLabel}</span><span>R${latest.round_number}</span></div>
+    <p class="dm-preview-body">${escapeHtml(latest.body)}</p>`;
+}
+
+function dmWindows(dmLeft) {
   const mine = mySeat();
   if (!mine) return "";
   const threadSeatIds = new Set(
@@ -655,25 +890,18 @@ function dmWindows(newDmLeft, replyLeft) {
       const seat = seatById(seatId);
       if (!seat) return "";
       const isFocused = seatId === state.selectedDmSeatId;
-      return desktopWindow(
-        `dm-${seat.id}`,
-        `${seat.alias}.dm`,
-        `
-          <div class="message-list compact">${directMessagesFor(seatId)}</div>
-          ${
-            isFocused
-              ? `<form id="dmForm" class="composer">
-                  <textarea name="body" rows="2" maxlength="${settings().charLimit}" placeholder="Message ${escapeHtml(seat.alias)}"></textarea>
-                  <div class="composer-row">
-                    <span class="counter">new ${newDmLeft} / replies ${replyLeft}</span>
-                    <button type="submit" ${newDmLeft <= 0 && replyLeft <= 0 ? "disabled" : ""}>Send</button>
-                  </div>
-                </form>`
-              : `<button class="secondary focus-dm" type="button" data-seat-id="${seat.id}">Open this window</button>`
-          }
-        `,
-        `dm-window ${isFocused ? "focused" : ""}`,
-      );
+      const body = isFocused
+        ? `
+          <div class="message-list" data-scroll-id="dm-${seat.id}">${directMessagesFor(seatId)}</div>
+          <form id="dmForm" class="composer">
+            <textarea name="body" rows="2" maxlength="${settings().charLimit}" placeholder="Message ${escapeHtml(seat.alias)}">${escapeHtml(state.drafts.direct[seat.id] || "")}</textarea>
+            <div class="composer-row">
+              <span class="counter">${dmLeft} DMs left</span>
+              <button type="submit" ${dmLeft <= 0 ? "disabled" : ""}>Send</button>
+            </div>
+          </form>`
+        : `<div class="dm-preview focus-dm" data-seat-id="${seat.id}">${dmPreviewLine(seatId)}</div>`;
+      return desktopWindow(`dm-${seat.id}`, `${seat.alias}.dm`, body, `dm-window ${isFocused ? "focused" : "collapsed"}`);
     })
     .join("");
 }
@@ -685,50 +913,6 @@ function messagesFromMe(channel) {
       message.from_seat_id === mine?.id &&
       message.channel === channel &&
       message.round_number === state.game?.round_number,
-  );
-}
-
-function hasPriorDmWith(seatId) {
-  const mine = mySeat();
-  return state.messages.some(
-    (message) =>
-      message.channel === "direct" &&
-      ((message.from_seat_id === mine?.id && message.to_seat_id === seatId) ||
-        (message.from_seat_id === seatId && message.to_seat_id === mine?.id)),
-  );
-}
-
-function newDmsFromMe() {
-  const mine = mySeat();
-  return state.messages.filter(
-    (message) =>
-      message.from_seat_id === mine?.id &&
-      message.channel === "direct" &&
-      message.round_number === state.game?.round_number &&
-      !state.messages.some(
-        (prior) =>
-          prior.created_at < message.created_at &&
-          prior.channel === "direct" &&
-          ((prior.from_seat_id === message.from_seat_id && prior.to_seat_id === message.to_seat_id) ||
-            (prior.from_seat_id === message.to_seat_id && prior.to_seat_id === message.from_seat_id)),
-      ),
-  );
-}
-
-function repliesFromMe() {
-  const mine = mySeat();
-  return state.messages.filter(
-    (message) =>
-      message.from_seat_id === mine?.id &&
-      message.channel === "direct" &&
-      message.round_number === state.game?.round_number &&
-      state.messages.some(
-        (prior) =>
-          prior.created_at < message.created_at &&
-          prior.channel === "direct" &&
-          ((prior.from_seat_id === message.from_seat_id && prior.to_seat_id === message.to_seat_id) ||
-            (prior.from_seat_id === message.to_seat_id && prior.to_seat_id === message.from_seat_id)),
-      ),
   );
 }
 
@@ -749,10 +933,12 @@ function labelDraftRow(seat) {
   const draft = state.guessDrafts[seat.id] || {};
   const humanOptions = [`<option value="">No human match</option>`]
     .concat(
-      state.participants.map(
-        (participant) =>
-          `<option value="${participant.id}" ${participant.id === draft.participantId ? "selected" : ""}>${escapeHtml(participant.display_name)}</option>`,
-      ),
+      state.participants
+        .filter((participant) => participant.id !== state.participant?.id)
+        .map(
+          (participant) =>
+            `<option value="${participant.id}" ${participant.id === draft.participantId ? "selected" : ""}>${escapeHtml(participant.display_name)}</option>`,
+        ),
     )
     .join("");
   return `
@@ -784,6 +970,7 @@ function bindCommonEvents() {
   document.getElementById("dmForm")?.addEventListener("submit", onDirectMessage);
   document.querySelectorAll(".composer textarea").forEach((textarea) => {
     textarea.addEventListener("keydown", onComposerKeydown);
+    textarea.addEventListener("input", onComposerInput);
   });
   document.querySelectorAll(".identity-button").forEach((button) => {
     button.addEventListener("click", () => openDmWindow(button.dataset.seatId || ""));
@@ -804,6 +991,16 @@ function bindCommonEvents() {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
+  const revealTrack = document.getElementById("revealTrack");
+  if (revealTrack) {
+    const seatIndex = Number(revealTrack.dataset.seatIndex || 0);
+    if (seatIndex !== lastRevealTrackSeatIndex) {
+      lastRevealTrackSeatIndex = seatIndex;
+      revealTrack.scrollLeft = revealTrack.scrollWidth;
+    }
+  } else {
+    lastRevealTrackSeatIndex = -1;
+  }
 }
 
 function openDmWindow(seatId) {
@@ -824,6 +1021,7 @@ function onGuessTypeClick(event) {
     kind,
     participantId: kind === "human" ? state.guessDrafts[seatId]?.participantId || "" : null,
   };
+  state.guessFormError = "";
   render();
 }
 
@@ -840,6 +1038,12 @@ function onComposerKeydown(event) {
   if (event.key !== "Enter" || event.shiftKey) return;
   event.preventDefault();
   event.currentTarget.closest("form")?.requestSubmit();
+}
+
+function onComposerInput(event) {
+  const formId = event.currentTarget.closest("form")?.id;
+  if (formId === "publicForm") state.drafts.public = event.currentTarget.value;
+  if (formId === "dmForm" && state.selectedDmSeatId) state.drafts.direct[state.selectedDmSeatId] = event.currentTarget.value;
 }
 
 function onWindowAction(event) {
@@ -1016,11 +1220,25 @@ function subscribeRoom() {
     .subscribe();
 }
 
+let lastRevealSignature = "";
+let lastRevealTrackSeatIndex = -1;
+
 function startLocalTimer() {
   clearInterval(state.tickTimer);
   state.tickTimer = setInterval(async () => {
     updateCountdown();
-    updateTimerDisplay();
+    if (state.room?.status === "results" || state.game?.status === "results") {
+      const signature = revealSignature();
+      if (signature !== lastRevealSignature) {
+        lastRevealSignature = signature;
+        render();
+      }
+      const countdownEl = document.getElementById("resultsCountdown");
+      if (countdownEl) countdownEl.textContent = `Next game in ${state.countdown}`;
+    } else {
+      lastRevealSignature = "";
+      updateTimerDisplay();
+    }
     if (state.game?.status === "guessing" && state.countdown <= 0) {
       await autoSubmitGuesses();
     }
@@ -1060,8 +1278,14 @@ async function onSaveSettings(event) {
   event.preventDefault();
   const nextSettings = settingsFromForm(event.currentTarget);
   const { error } = await supabase.from("rooms").update({ settings: nextSettings }).eq("id", state.room.id);
-  state.lobbyNotice = error ? "" : "Settings saved.";
-  if (error) alert(error.message);
+  if (error) {
+    state.lobbyNotice = "";
+    render();
+    return alert(error.message);
+  }
+  state.room = { ...state.room, settings: nextSettings };
+  state.lobbyNotice = "Settings saved.";
+  render();
 }
 
 function settingsFromForm(formElement) {
@@ -1136,17 +1360,15 @@ async function startGame() {
 }
 
 function buildSeats(gameId, aiCount) {
-  const names = shuffle(BOT_NAMES);
-  const icons = shuffle(ICONS);
-  const colors = shuffle(COLORS);
+  const palette = shuffle(PALETTE);
   const targets = shuffle(state.participants);
   const humanSeats = state.participants.map((participant, index) => ({
     game_id: gameId,
     participant_id: participant.id,
     kind: "human",
-    alias: names[index % names.length],
-    icon: icons[index % icons.length],
-    color: colors[index % colors.length],
+    alias: palette[index % palette.length].name,
+    icon: palette[index % palette.length].icon,
+    color: palette[index % palette.length].color,
   }));
   const aiSeats = Array.from({ length: aiCount }, (_, index) => {
     const target = targets[index % targets.length];
@@ -1154,9 +1376,9 @@ function buildSeats(gameId, aiCount) {
       game_id: gameId,
       kind: "ai",
       mimic_participant_id: target.id,
-      alias: names[(humanSeats.length + index) % names.length],
-      icon: icons[(humanSeats.length + index) % icons.length],
-      color: colors[(humanSeats.length + index) % colors.length],
+      alias: palette[(humanSeats.length + index) % palette.length].name,
+      icon: palette[(humanSeats.length + index) % palette.length].icon,
+      color: palette[(humanSeats.length + index) % palette.length].color,
     };
   });
   return shuffle([...humanSeats, ...aiSeats]);
@@ -1165,20 +1387,20 @@ function buildSeats(gameId, aiCount) {
 async function onPublicMessage(event) {
   event.preventDefault();
   const mine = mySeat();
-  if (!mine || messagesFromMe("public").length >= 1) return;
+  if (!mine || messagesFromMe("public").length >= 2) return;
   const body = String(new FormData(event.currentTarget).get("body") || "").trim();
   await insertMessage(mine.id, "public", body);
+  state.drafts.public = "";
 }
 
 async function onDirectMessage(event) {
   event.preventDefault();
   const mine = mySeat();
   const toSeatId = state.selectedDmSeatId;
-  const isReply = hasPriorDmWith(toSeatId);
-  if (isReply && repliesFromMe().length >= 2) return;
-  if (!isReply && newDmsFromMe().length >= 2) return;
+  if (messagesFromMe("direct").length >= 4) return;
   const body = String(new FormData(event.currentTarget).get("body") || "").trim();
   await insertMessage(mine.id, "direct", body, toSeatId);
+  state.drafts.direct[toSeatId] = "";
 }
 
 async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
@@ -1199,15 +1421,21 @@ async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
 async function onSubmitGuesses(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const missing = state.seats.find((seat) => !state.guessDrafts[seat.id]?.kind);
-  if (missing) return alert(`Choose Human or AI for ${missing.alias}.`);
+  const guessableSeats = state.seats.filter((seat) => seat.id !== mySeat()?.id);
+  const missing = guessableSeats.find((seat) => !state.guessDrafts[seat.id]?.kind);
+  if (missing) {
+    state.guessFormError = `Choose Human or AI for ${missing.alias}.`;
+    render();
+    return;
+  }
+  state.guessFormError = "";
   await submitGuessPayload(buildGuessPayload(form, false));
   await refreshAll();
 }
 
 function buildGuessPayload(form, allowBlanks) {
-  return state.seats.map((seat) => {
-    const kind = state.guessDrafts[seat.id].kind;
+  return state.seats.filter((seat) => seat.id !== mySeat()?.id).map((seat) => {
+    const kind = state.guessDrafts[seat.id]?.kind;
     const finalKind = kind || (allowBlanks ? "unanswered" : "");
     return {
       seatId: seat.id,
@@ -1294,7 +1522,7 @@ async function scoreGame() {
     await supabase.from("guesses").update({ points: entry.points }).eq("game_id", state.game.id).eq("participant_id", entry.participant.id);
   }
   await supabase.from("games").update({ status: "results" }).eq("id", state.game.id);
-  await supabase.from("rooms").update({ status: "results", next_game_at: nowPlus(15) }).eq("id", state.room.id);
+  await supabase.from("rooms").update({ status: "results", next_game_at: nowPlus(resultsTimeline().total) }).eq("id", state.room.id);
 }
 
 async function runAiRoundMessages() {
@@ -1302,6 +1530,7 @@ async function runAiRoundMessages() {
   const lockScope = `${state.game.id}:${state.game.round_number}`;
   if (state.aiLockScope !== lockScope) {
     state.aiSendLocks.clear();
+    state.aiDelayCache.clear();
     state.aiLockScope = lockScope;
   }
 

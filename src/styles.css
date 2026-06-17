@@ -511,6 +511,15 @@ label {
   max-height: 360px;
 }
 
+.monitor-window {
+  max-height: 350px;
+}
+
+.monitor-window .window-body {
+  max-height: 312px;
+  overflow-y: auto;
+}
+
 .label-notes {
   display: grid;
   gap: 10px;
@@ -589,8 +598,8 @@ label {
   height: 380px;
 }
 
-.message-list.compact {
-  height: 210px;
+.dm-window .message-list {
+  height: 220px;
 }
 
 .message {
@@ -629,8 +638,37 @@ label {
   font-weight: 800;
 }
 
-.focus-dm {
+.dm-window.collapsed {
+  min-height: 0;
+}
+
+.dm-preview {
   margin: 10px;
+  padding: 9px 11px;
+  border: 2px solid var(--line);
+  background: #fff3c7;
+  cursor: pointer;
+}
+
+.dm-preview:hover {
+  background: #ffe9a8;
+}
+
+.dm-preview-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.dm-preview-body {
+  margin-top: 4px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .desktop-taskbar {
@@ -660,6 +698,138 @@ label {
 .guess-view,
 .results-view {
   padding-top: 24px;
+}
+
+.reveal-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 4px 18px;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.reveal-track::-webkit-scrollbar {
+  display: none;
+}
+
+.reveal-stage {
+  padding: 0;
+  margin: 0;
+  width: 300px;
+  min-width: 300px;
+  flex-shrink: 0;
+}
+
+.reveal-stage.settled {
+  opacity: 0.6;
+  transform: scale(0.94);
+}
+
+.reveal-stage.active {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.reveal-stage-head {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.reveal-stage-head .identity-name {
+  font-size: 1.05rem;
+}
+
+.reveal-lines {
+  display: grid;
+  gap: 7px;
+  min-height: 170px;
+}
+
+.reveal-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 2px solid var(--line);
+  background: #fff3c7;
+  padding: 6px 9px;
+  font-size: 0.86rem;
+}
+
+.reveal-line.pending {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.4;
+}
+
+.reveal-placeholder {
+  font-size: 1.2rem;
+  letter-spacing: 0.3em;
+  color: var(--muted);
+}
+
+.reveal-line.just-in {
+  animation: reveal-pop 0.35s ease-out;
+}
+
+@keyframes reveal-pop {
+  from {
+    transform: translateY(8px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.reveal-name {
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.reveal-guess {
+  flex: 1;
+  color: var(--muted);
+}
+
+.reveal-points {
+  min-width: 36px;
+  border: 2px solid var(--line);
+  padding: 3px 6px;
+  text-align: center;
+  font-weight: 950;
+  font-size: 0.82rem;
+}
+
+.reveal-points.earned {
+  background: var(--green);
+}
+
+.reveal-points.zero {
+  background: #efe3c6;
+  color: var(--muted);
+}
+
+.reveal-truth-banner {
+  margin-top: 10px;
+  padding: 11px;
+  border: 3px solid var(--line);
+  background: var(--accent-2);
+  box-shadow: var(--shadow);
+  text-align: center;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.reveal-truth-banner.pop {
+  animation: reveal-pop 0.4s ease-out;
 }
 
 .guess-head,
@@ -742,9 +912,22 @@ label {
   transform: translate(1px, 1px);
 }
 
-.guess-submit {
+.guess-submit-row {
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.guess-submit {
   justify-self: end;
+}
+
+.guess-form-error {
+  color: #b3261e;
+  font-weight: 700;
+  font-size: 13px;
 }
 
 .countdown {
