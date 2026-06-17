@@ -75,6 +75,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
     { data: seat, error: seatError },
     { data: room, error: roomError },
     { data: recentMessages },
+    { data: recentDirectMessages },
     { data: triggerMessage },
   ] = await Promise.all([
     supabase.from("games").select("*").eq("id", input.gameId).single(),
@@ -86,6 +87,13 @@ async function buildContext(supabase: any, input: TurnRequest) {
       .eq("game_id", input.gameId)
       .order("created_at", { ascending: false })
       .limit(24),
+    supabase
+      .from("messages")
+      .select("body, channel, round_number, from_seat_id, to_seat_id")
+      .eq("game_id", input.gameId)
+      .eq("channel", "direct")
+      .order("created_at", { ascending: false })
+      .limit(50),
     input.triggerMessageId
       ? supabase
           .from("messages")
@@ -99,6 +107,16 @@ async function buildContext(supabase: any, input: TurnRequest) {
   if (gameError || !game) throw new Error(`Game not found for ai-turn: ${input.gameId}`);
   if (seatError || !seat) throw new Error(`Seat not found for ai-turn: ${input.seatId}`);
 
+  const threadMessages =
+    input.channel === "direct" && input.toSeatId
+      ? (recentDirectMessages || [])
+          .filter(
+            (message: any) =>
+              (message.from_seat_id === input.seatId && message.to_seat_id === input.toSeatId) ||
+              (message.from_seat_id === input.toSeatId && message.to_seat_id === input.seatId),
+          )
+          .reverse()
+      : [];
   const mimicMessages = await retrieveMimicMessages(supabase, seat.mimic_participant_id);
   try {
     await rememberMimicMessages(supabase, seat.mimic_participant_id, mimicMessages);
@@ -115,6 +133,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
     mimicParticipantId: seat.mimic_participant_id,
     responseChannel: input.channel,
     recentMessages: recentMessages || [],
+    threadMessages,
     triggerMessage,
     mimicMessages,
     memories,
@@ -202,6 +221,7 @@ async function saveTrainingExample(
       responseChannel: context.responseChannel,
       memoryCount: context.memoryCount,
       mimicMessageCount: context.mimicMessages.length,
+      threadMessageCount: context.threadMessages.length,
       hadTrigger: Boolean(context.triggerMessage),
     },
   });
@@ -234,6 +254,9 @@ Hard constraints:
 - Avoid assistant phrases like "what's on your mind", "how can I help", "just hanging out", or generic customer-support tone.
 - Write like a real player in a fast social deduction chat: short, specific, imperfect, and context-aware.
 - This turn will be posted to the ${context.responseChannel} channel. Reply as if you are writing in that exact channel, not another chat.
+- If there is a trigger message, answer or react to that specific message.
+- If this is a DM, use the current DM thread as the main context and do not sound like you are addressing the whole room.
+- If another AI seat wrote the trigger, treat it as another suspicious anonymous player, not as a teammate.
 
 Relevant retrieved memories:
 ${context.memories.map((memory: any) => `- ${memory.body}`).join("\n") || "- none yet"}
@@ -243,6 +266,9 @@ ${context.mimicMessages.map((message: any) => `- ${message.channel} R${message.r
 
 Message that triggered this AI turn:
 ${context.triggerMessage ? `- ${context.triggerMessage.channel} R${context.triggerMessage.round_number}: ${context.triggerMessage.body}` : "- proactive message; no specific trigger"}
+
+Current DM thread, oldest to newest:
+${context.threadMessages.length ? context.threadMessages.map((message: any) => `- R${message.round_number}: ${message.body}`).join("\n") : "- not a DM thread"}
 
 Recent room transcript, including public messages and DMs:
 ${context.recentMessages.map((message: any) => `- ${message.channel} R${message.round_number}: ${message.body}`).join("\n") || "- none yet"}

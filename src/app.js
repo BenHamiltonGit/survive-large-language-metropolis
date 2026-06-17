@@ -1614,19 +1614,18 @@ async function scoreGame() {
 
 async function runReactiveAiMessages(aiSeats, lockScope) {
   const messages = currentRoundMessages();
-  const humanSeatIds = new Set(state.seats.filter((seat) => seat.kind === "human").map((seat) => seat.id));
   const directIncoming = messages
-    .filter((message) => message.channel === "direct" && humanSeatIds.has(message.from_seat_id))
+    .filter((message) => message.channel === "direct")
     .sort((left, right) => messageTime(left) - messageTime(right));
   const publicIncoming = messages
-    .filter((message) => message.channel === "public" && humanSeatIds.has(message.from_seat_id))
+    .filter((message) => message.channel === "public")
     .sort((left, right) => messageTime(left) - messageTime(right));
 
   for (const aiSeat of aiSeats) {
     if (!(await hasMimicSamples(aiSeat))) continue;
     const aiMessages = messages.filter((message) => message.from_seat_id === aiSeat.id);
 
-    for (const incoming of directIncoming.filter((message) => message.to_seat_id === aiSeat.id)) {
+    for (const incoming of directIncoming.filter((message) => message.to_seat_id === aiSeat.id && message.from_seat_id !== aiSeat.id)) {
       const directKey = `${lockScope}:${aiSeat.id}:react-direct:${incoming.id}`;
       const alreadyReplied = aiMessages.some(
         (message) =>
@@ -1635,7 +1634,8 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
           messageTime(message) > messageTime(incoming),
       );
       const directCount = aiMessages.filter((message) => message.channel === "direct").length;
-      const delay = reactionDelaySeconds(`${directKey}:delay`, 4, 10);
+      const incomingSeat = seatById(incoming.from_seat_id);
+      const delay = reactionDelaySeconds(`${directKey}:delay`, incomingSeat?.kind === "ai" ? 6 : 4, incomingSeat?.kind === "ai" ? 13 : 10);
       if (!alreadyReplied && directCount < 8 && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(directKey)) {
         state.aiSendLocks.add(directKey);
         const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id, incoming.id);
@@ -1643,10 +1643,12 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       }
     }
 
-    for (const incoming of publicIncoming) {
+    for (const incoming of publicIncoming.filter((message) => message.from_seat_id !== aiSeat.id)) {
       const publicKey = `${lockScope}:${aiSeat.id}:react-public:${incoming.id}`;
       const mentioned = bodyMentionsSeat(incoming.body, aiSeat);
-      const shouldReply = mentioned || stableRandom(`${publicKey}:chance`) <= 0.25;
+      const incomingSeat = seatById(incoming.from_seat_id);
+      const responseChance = incomingSeat?.kind === "ai" ? 0.16 : 0.25;
+      const shouldReply = mentioned || stableRandom(`${publicKey}:chance`) <= responseChance;
       if (!shouldReply) continue;
 
       const alreadyReplied = aiMessages.some(
@@ -1654,7 +1656,7 @@ async function runReactiveAiMessages(aiSeats, lockScope) {
       );
       const publicCount = aiMessages.filter((message) => message.channel === "public").length;
       const maxPublicMessages = mentioned ? 4 : 3;
-      const delay = reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : 6, mentioned ? 9 : 14);
+      const delay = reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : incomingSeat?.kind === "ai" ? 8 : 6, mentioned ? 9 : 16);
       if (!alreadyReplied && publicCount < maxPublicMessages && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(publicKey)) {
         state.aiSendLocks.add(publicKey);
         const sent = await insertAiMessage(aiSeat, "public", null, incoming.id);
