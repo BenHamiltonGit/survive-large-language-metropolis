@@ -139,6 +139,19 @@ create table if not exists public.player_memories (
   created_at timestamptz not null default now()
 );
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'player_memories_message_id_key'
+  ) then
+    alter table public.player_memories
+      add constraint player_memories_message_id_key unique (message_id);
+  end if;
+end;
+$$;
+
 create table if not exists public.ai_observability (
   id uuid primary key default gen_random_uuid(),
   room_id uuid references public.rooms(id) on delete cascade,
@@ -151,6 +164,26 @@ create table if not exists public.ai_observability (
   latency_ms integer,
   status text not null,
   error text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_training_examples (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid references public.rooms(id) on delete cascade,
+  game_id uuid references public.games(id) on delete cascade,
+  seat_id uuid references public.seats(id) on delete cascade,
+  message_id uuid references public.messages(id) on delete set null,
+  mimic_participant_id uuid references public.participants(id) on delete set null,
+  trigger_message_id uuid references public.messages(id) on delete set null,
+  provider text not null,
+  model text not null,
+  channel text not null,
+  prompt text not null,
+  raw_response text not null,
+  final_message text not null,
+  intent text,
+  risk_flags text[] not null default '{}',
+  context jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -186,6 +219,7 @@ alter table public.messages enable row level security;
 alter table public.guesses enable row level security;
 alter table public.player_memories enable row level security;
 alter table public.ai_observability enable row level security;
+alter table public.ai_training_examples enable row level security;
 
 drop policy if exists "prototype rooms all" on public.rooms;
 drop policy if exists "prototype participants all" on public.participants;
@@ -195,6 +229,7 @@ drop policy if exists "prototype messages all" on public.messages;
 drop policy if exists "prototype guesses all" on public.guesses;
 drop policy if exists "prototype player memories all" on public.player_memories;
 drop policy if exists "prototype ai observability all" on public.ai_observability;
+drop policy if exists "prototype ai training examples all" on public.ai_training_examples;
 
 create policy "prototype rooms all" on public.rooms for all using (true) with check (true);
 create policy "prototype participants all" on public.participants for all using (true) with check (true);
@@ -204,6 +239,7 @@ create policy "prototype messages all" on public.messages for all using (true) w
 create policy "prototype guesses all" on public.guesses for all using (true) with check (true);
 create policy "prototype player memories all" on public.player_memories for all using (true) with check (true);
 create policy "prototype ai observability all" on public.ai_observability for all using (true) with check (true);
+create policy "prototype ai training examples all" on public.ai_training_examples for all using (true) with check (true);
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to anon, authenticated;

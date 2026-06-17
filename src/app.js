@@ -1464,7 +1464,7 @@ async function onDirectMessage(event) {
 async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
   const clean = body.slice(0, settings().charLimit);
   if (!clean) return;
-  const { error } = await supabase.from("messages").insert({
+  const { data, error } = await supabase.from("messages").insert({
     room_id: state.room.id,
     game_id: state.game.id,
     round_number: state.game.round_number,
@@ -1472,8 +1472,22 @@ async function insertMessage(fromSeatId, channel, body, toSeatId = null) {
     to_seat_id: toSeatId,
     channel,
     body: clean,
-  });
+  }).select("id").single();
   if (error) alert(error.message);
+  else await savePlayerMemory(fromSeatId, data.id, clean);
+}
+
+async function savePlayerMemory(fromSeatId, messageId, body) {
+  const seat = seatById(fromSeatId);
+  if (seat?.kind !== "human" || !seat.participant_id) return;
+  await supabase.from("player_memories").upsert(
+    {
+      participant_id: seat.participant_id,
+      message_id: messageId,
+      body,
+    },
+    { onConflict: "message_id", ignoreDuplicates: true },
+  );
 }
 
 async function onSubmitGuesses(event) {

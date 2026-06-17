@@ -40,17 +40,26 @@ Deno.serve(async (req) => {
     const parsed = ResponseSchema.parse(JSON.parse(extractJson(raw)));
     const safe = applyGuardrails(parsed.message, context.charLimit);
 
-    const { error } = await supabase.from("messages").insert({
-      room_id: input.roomId,
-      game_id: input.gameId,
-      round_number: context.roundNumber,
-      from_seat_id: input.seatId,
-      to_seat_id: input.toSeatId || null,
-      channel: input.channel,
-      body: safe,
-    });
+    const { data: message, error } = await supabase
+      .from("messages")
+      .insert({
+        room_id: input.roomId,
+        game_id: input.gameId,
+        round_number: context.roundNumber,
+        from_seat_id: input.seatId,
+        to_seat_id: input.toSeatId || null,
+        channel: input.channel,
+        body: safe,
+      })
+      .select("id")
+      .single();
     if (error) throw error;
 
+    try {
+      await saveTrainingExample(supabase, input, context, provider, prompt, raw, safe, parsed, message?.id || null);
+    } catch (trainingError) {
+      console.warn("Failed to save AI training example:", trainingError);
+    }
     await logAiTurn(supabase, input, provider, context.model, startedAt, "ok");
     return json({ message: safe, intent: parsed.intent, riskFlags: parsed.riskFlags });
   } catch (error) {
@@ -90,10 +99,13 @@ async function buildContext(supabase: any, input: TurnRequest) {
   if (gameError || !game) throw new Error(`Game not found for ai-turn: ${input.gameId}`);
   if (seatError || !seat) throw new Error(`Seat not found for ai-turn: ${input.seatId}`);
 
-  const [memories, mimicMessages] = await Promise.all([
-    retrieveMemories(supabase, seat.mimic_participant_id),
-    retrieveMimicMessages(supabase, seat.mimic_participant_id),
-  ]);
+  const mimicMessages = await retrieveMimicMessages(supabase, seat.mimic_participant_id);
+  try {
+    await rememberMimicMessages(supabase, seat.mimic_participant_id, mimicMessages);
+  } catch (memoryError) {
+    console.warn("Failed to remember mimic messages:", memoryError);
+  }
+  const memories = await retrieveMemories(supabase, seat.mimic_participant_id);
   if (!memories.length && !mimicMessages.length) throw new Error("No mimic samples yet.");
 
   return {
@@ -106,6 +118,7 @@ async function buildContext(supabase: any, input: TurnRequest) {
     triggerMessage,
     mimicMessages,
     memories,
+    memoryCount: memories.length,
   };
 }
 
@@ -131,11 +144,65 @@ async function retrieveMimicMessages(supabase: any, participantId: string) {
 
   const { data } = await supabase
     .from("messages")
-    .select("body, channel, round_number")
+    .select("id, body, channel, round_number")
     .in("from_seat_id", seatIds)
     .order("created_at", { ascending: false })
     .limit(30);
   return data || [];
+}
+
+async function rememberMimicMessages(supabase: any, participantId: string, messages: any[]) {
+  const candidates = messages.filter((message) => message.id && message.body).slice(0, 8);
+  if (!candidates.length) return;
+
+  for (const message of candidates) {
+    const embedding = await embedText(message.body);
+    await supabase.from("player_memories").upsert(
+      {
+        participant_id: participantId,
+        message_id: message.id,
+        body: message.body,
+        embedding,
+      },
+      { onConflict: "message_id" },
+    );
+  }
+}
+
+async function saveTrainingExample(
+  supabase: any,
+  input: Partial<TurnRequest>,
+  context: any,
+  provider: Provider,
+  prompt: string,
+  rawResponse: string,
+  finalMessage: string,
+  parsed: z.infer<typeof ResponseSchema>,
+  messageId: string | null,
+) {
+  await supabase.from("ai_training_examples").insert({
+    room_id: input.roomId,
+    game_id: input.gameId,
+    seat_id: input.seatId,
+    message_id: messageId,
+    mimic_participant_id: context.mimicParticipantId,
+    trigger_message_id: input.triggerMessageId || null,
+    provider,
+    model: context.model,
+    channel: input.channel,
+    prompt,
+    raw_response: rawResponse,
+    final_message: finalMessage,
+    intent: parsed.intent,
+    risk_flags: parsed.riskFlags,
+    context: {
+      roundNumber: context.roundNumber,
+      responseChannel: context.responseChannel,
+      memoryCount: context.memoryCount,
+      mimicMessageCount: context.mimicMessages.length,
+      hadTrigger: Boolean(context.triggerMessage),
+    },
+  });
 }
 
 function buildPrompt(context: any) {

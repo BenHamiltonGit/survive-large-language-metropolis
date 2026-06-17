@@ -33,6 +33,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - AI turns are now reactive: DMs sent to an AI trigger delayed replies, and public human messages can draw delayed AI responses with a higher priority when the AI's visible color name is called out.
 - Rooms now soft-remove players on page exit and delete themselves through a Supabase `leave_room` RPC once no active human participants remain.
 - AIs now wait until their mimic target has written at least one accessible message before speaking, and mimic context includes all messages written by that target, including DMs.
+- Human messages now save into `player_memories`, AI turns backfill embeddings for mimic samples, and successful LLM turns save prompt/context/output rows in `ai_training_examples` for training/evals.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
