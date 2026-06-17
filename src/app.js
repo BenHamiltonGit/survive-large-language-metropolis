@@ -121,6 +121,14 @@ function aiDelaySeconds(kind, seed) {
   return state.aiDelayCache.get(seed);
 }
 
+function reactionDelaySeconds(seed, min = 4, max = 12) {
+  if (!state.aiDelayCache.has(seed)) {
+    const spread = Math.max(1, max - min);
+    state.aiDelayCache.set(seed, Math.round(min + spread * stableRandom(seed)));
+  }
+  return state.aiDelayCache.get(seed);
+}
+
 function isHost() {
   return Boolean(state.participant?.is_host);
 }
@@ -145,6 +153,26 @@ function seatById(id) {
 
 function participantById(id) {
   return state.participants.find((participant) => participant.id === id);
+}
+
+function currentRoundMessages() {
+  return state.messages.filter((message) => message.round_number === state.game?.round_number);
+}
+
+function secondsSinceMessage(message) {
+  return Math.max(0, (Date.now() - new Date(message.created_at).getTime()) / 1000);
+}
+
+function messageTime(message) {
+  return new Date(message.created_at).getTime();
+}
+
+function bodyMentionsSeat(body, seat) {
+  const text = String(body || "").toLowerCase();
+  const alias = String(seat.alias || "").toLowerCase();
+  const compactAlias = alias.replace(/\s+/g, "");
+  const compactText = text.replace(/\s+/g, "");
+  return Boolean(alias && (text.includes(alias) || compactText.includes(compactAlias)));
 }
 
 function seatName(id) {
@@ -1525,6 +1553,57 @@ async function scoreGame() {
   await supabase.from("rooms").update({ status: "results", next_game_at: nowPlus(resultsTimeline().total) }).eq("id", state.room.id);
 }
 
+async function runReactiveAiMessages(aiSeats, lockScope) {
+  const messages = currentRoundMessages();
+  const humanSeatIds = new Set(state.seats.filter((seat) => seat.kind === "human").map((seat) => seat.id));
+  const directIncoming = messages
+    .filter((message) => message.channel === "direct" && humanSeatIds.has(message.from_seat_id))
+    .sort((left, right) => messageTime(left) - messageTime(right));
+  const publicIncoming = messages
+    .filter((message) => message.channel === "public" && humanSeatIds.has(message.from_seat_id))
+    .sort((left, right) => messageTime(left) - messageTime(right));
+
+  for (const aiSeat of aiSeats) {
+    const aiMessages = messages.filter((message) => message.from_seat_id === aiSeat.id);
+
+    for (const incoming of directIncoming.filter((message) => message.to_seat_id === aiSeat.id)) {
+      const directKey = `${lockScope}:${aiSeat.id}:react-direct:${incoming.id}`;
+      const alreadyReplied = aiMessages.some(
+        (message) =>
+          message.channel === "direct" &&
+          message.to_seat_id === incoming.from_seat_id &&
+          messageTime(message) > messageTime(incoming),
+      );
+      const directCount = aiMessages.filter((message) => message.channel === "direct").length;
+      const delay = reactionDelaySeconds(`${directKey}:delay`, 4, 10);
+      if (!alreadyReplied && directCount < 8 && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(directKey)) {
+        state.aiSendLocks.add(directKey);
+        const sent = await insertAiMessage(aiSeat, "direct", incoming.from_seat_id);
+        if (!sent) state.aiSendLocks.delete(directKey);
+      }
+    }
+
+    for (const incoming of publicIncoming) {
+      const publicKey = `${lockScope}:${aiSeat.id}:react-public:${incoming.id}`;
+      const mentioned = bodyMentionsSeat(incoming.body, aiSeat);
+      const shouldReply = mentioned || stableRandom(`${publicKey}:chance`) <= 0.25;
+      if (!shouldReply) continue;
+
+      const alreadyReplied = aiMessages.some(
+        (message) => message.channel === "public" && messageTime(message) > messageTime(incoming),
+      );
+      const publicCount = aiMessages.filter((message) => message.channel === "public").length;
+      const maxPublicMessages = mentioned ? 4 : 3;
+      const delay = reactionDelaySeconds(`${publicKey}:delay`, mentioned ? 3 : 6, mentioned ? 9 : 14);
+      if (!alreadyReplied && publicCount < maxPublicMessages && secondsSinceMessage(incoming) >= delay && !state.aiSendLocks.has(publicKey)) {
+        state.aiSendLocks.add(publicKey);
+        const sent = await insertAiMessage(aiSeat, "public", null);
+        if (!sent) state.aiSendLocks.delete(publicKey);
+      }
+    }
+  }
+}
+
 async function runAiRoundMessages() {
   if (!isHost() || !state.game) return;
   const lockScope = `${state.game.id}:${state.game.round_number}`;
@@ -1536,6 +1615,7 @@ async function runAiRoundMessages() {
 
   const elapsed = settings().roundSeconds - state.countdown;
   const aiSeats = state.seats.filter((seat) => seat.kind === "ai");
+  await runReactiveAiMessages(aiSeats, lockScope);
   for (const aiSeat of aiSeats) {
     const publicKey = `${lockScope}:${aiSeat.id}:public`;
     const publicCount = state.messages.filter(
