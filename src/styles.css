@@ -88,9 +88,45 @@ p {
 }
 
 .app-shell {
+  position: relative;
   width: min(1500px, calc(100vw - 24px));
   margin: 0 auto;
   padding: 14px 0 28px;
+}
+
+.system-toast {
+  position: fixed;
+  left: 50%;
+  top: 22px;
+  z-index: 9999;
+  transform: translateX(-50%);
+  border: 3px solid var(--line);
+  background: #fff0a8;
+  box-shadow: 5px 5px 0 #2a2015;
+  color: #21170f;
+  padding: 10px 16px;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  animation: toast-in-out 1.8s ease both;
+  pointer-events: none;
+}
+
+@keyframes toast-in-out {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  14%,
+  76% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
 }
 
 .topbar,

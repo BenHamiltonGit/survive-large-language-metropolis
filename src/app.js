@@ -63,9 +63,72 @@ const state = {
   nextWindowZ: 10,
   draggingWindow: null,
   isLeavingRoom: false,
+  hasLoadedMessages: false,
+  knownMessageIds: new Set(),
+  lastPlayingRoundKey: "",
+  hasSeenPlayingRound: false,
+  toast: null,
+  toastTimer: null,
+  audioReady: false,
+  audioContext: null,
 };
 
 const app = document.getElementById("app");
+
+function markAudioReady() {
+  state.audioReady = true;
+}
+
+function audioContext() {
+  if (!state.audioReady) return null;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!state.audioContext) state.audioContext = new AudioContextClass();
+  if (state.audioContext.state === "suspended") state.audioContext.resume();
+  return state.audioContext;
+}
+
+function playToneSequence(notes) {
+  const context = audioContext();
+  if (!context) return;
+  const start = context.currentTime + 0.01;
+  notes.forEach((note, index) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const noteStart = start + index * note.gap;
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(note.frequency, noteStart);
+    gain.gain.setValueAtTime(0.0001, noteStart);
+    gain.gain.exponentialRampToValueAtTime(note.volume, noteStart + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + note.duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(noteStart);
+    oscillator.stop(noteStart + note.duration + 0.02);
+  });
+}
+
+function playPublicMessageSound() {
+  playToneSequence([{ frequency: 740, duration: 0.08, gap: 0.1, volume: 0.035 }]);
+}
+
+function playDirectMessageSound() {
+  playToneSequence([
+    { frequency: 660, duration: 0.07, gap: 0.09, volume: 0.035 },
+    { frequency: 830, duration: 0.07, gap: 0.09, volume: 0.035 },
+    { frequency: 990, duration: 0.09, gap: 0.09, volume: 0.032 },
+  ]);
+}
+
+function showToast(message) {
+  clearTimeout(state.toastTimer);
+  state.toast = { message, id: Date.now() };
+  render();
+  state.toastTimer = setTimeout(() => {
+    state.toast = null;
+    render();
+  }, 1800);
+}
 
 function html(strings, ...values) {
   return strings.map((string, index) => string + (values[index] ?? "")).join("");
@@ -419,11 +482,16 @@ function render() {
               ? renderGuessing()
               : renderLobby();
 
-  app.innerHTML = html`<main class="app-shell">${topbar()}${view}</main>`;
+  app.innerHTML = html`<main class="app-shell">${topbar()}${view}${toastHtml()}</main>`;
   bindCommonEvents();
   restoreFormValues(formValues);
   restoreFocusInfo(focusInfo);
   restoreScrollPositions(scrollPositions);
+}
+
+function toastHtml() {
+  if (!state.toast) return "";
+  return `<div class="system-toast" role="status">${escapeHtml(state.toast.message)}</div>`;
 }
 
 function renderInviteJoin() {
@@ -1220,6 +1288,10 @@ async function loadRoom(code) {
   if (error) return alert(error.message);
   state.room = room;
   state.phase = "room";
+  state.hasLoadedMessages = false;
+  state.knownMessageIds = new Set();
+  state.lastPlayingRoundKey = "";
+  state.hasSeenPlayingRound = false;
   await refreshAll();
   subscribeRoom();
   startLocalTimer();
@@ -1230,6 +1302,8 @@ async function loadRoom(code) {
 
 async function refreshAll() {
   if (!state.room) return;
+  const previousMessageIds = new Set(state.knownMessageIds);
+  const previousRoundKey = state.lastPlayingRoundKey;
   const [participantsRes, gamesRes] = await Promise.all([
     supabase.from("participants").select("*").eq("room_id", state.room.id).is("left_at", null).order("created_at"),
     supabase.from("games").select("*").eq("room_id", state.room.id).order("created_at", { ascending: false }).limit(1),
@@ -1247,14 +1321,49 @@ async function refreshAll() {
     state.seats = seatsRes.data || [];
     state.messages = messagesRes.data || [];
     state.guesses = guessesRes.data || [];
+    handleRealtimeEffects(previousMessageIds, previousRoundKey);
   } else {
     state.seats = [];
     state.messages = [];
     state.guesses = [];
+    state.knownMessageIds = new Set();
+    state.lastPlayingRoundKey = "";
+    state.hasSeenPlayingRound = false;
   }
   updateCountdown();
   render();
   await hostMaintenance();
+}
+
+function handleRealtimeEffects(previousMessageIds, previousRoundKey) {
+  const mine = mySeat();
+  const newMessages = state.messages.filter((message) => !previousMessageIds.has(message.id));
+  const shouldNotify = state.hasLoadedMessages && Boolean(mine);
+  state.knownMessageIds = new Set(state.messages.map((message) => message.id));
+  state.hasLoadedMessages = true;
+
+  if (shouldNotify && newMessages.length) {
+    const incoming = newMessages.filter((message) => message.from_seat_id !== mine.id);
+    const hasDirect = incoming.some(
+      (message) => message.channel === "direct" && (message.to_seat_id === mine.id || message.from_seat_id === mine.id),
+    );
+    const hasPublic = incoming.some((message) => message.channel === "public");
+    if (hasDirect) playDirectMessageSound();
+    else if (hasPublic) playPublicMessageSound();
+  }
+
+  const roundKey = state.game?.status === "playing" ? `${state.game.id}:${state.game.round_number}` : "";
+  if (roundKey && state.hasSeenPlayingRound && roundKey !== previousRoundKey) {
+    showToast("Message limits refreshed");
+    playToneSequence([
+      { frequency: 520, duration: 0.06, gap: 0.08, volume: 0.025 },
+      { frequency: 700, duration: 0.08, gap: 0.08, volume: 0.025 },
+    ]);
+  }
+  if (roundKey) {
+    state.lastPlayingRoundKey = roundKey;
+    state.hasSeenPlayingRound = true;
+  }
 }
 
 function subscribeRoom() {
@@ -1877,5 +1986,8 @@ window.advanceTime = async (ms) => {
 window.addEventListener("pagehide", () => {
   leaveCurrentRoom({ keepalive: true });
 });
+
+window.addEventListener("pointerdown", markAudioReady, { once: true });
+window.addEventListener("keydown", markAudioReady, { once: true });
 
 boot();
