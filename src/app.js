@@ -117,6 +117,7 @@ const state = {
   participant: null,
   participants: [],
   game: null,
+  loadedGameId: "",
   seats: [],
   messages: [],
   guesses: [],
@@ -198,10 +199,10 @@ function playDirectMessageSound() {
   ]);
 }
 
-function showToast(message) {
+function showToast(message, { renderNow = true } = {}) {
   clearTimeout(state.toastTimer);
   state.toast = { message, id: Date.now() };
-  render();
+  if (renderNow) render();
   state.toastTimer = setTimeout(() => {
     state.toast = null;
     render();
@@ -319,7 +320,12 @@ function currentRoundMessages() {
 }
 
 function currentQuestion(roundNumber = state.game?.round_number || 1) {
-  return ROUND_QUESTIONS[(Math.max(1, roundNumber) - 1) % ROUND_QUESTIONS.length];
+  const seed = state.game?.id || state.room?.id || "default";
+  const orderedQuestions = ROUND_QUESTIONS
+    .map((question, index) => ({ question, sort: stableRandom(`${seed}:question:${index}:${question}`) }))
+    .sort((left, right) => left.sort - right.sort)
+    .map((entry) => entry.question);
+  return orderedQuestions[(Math.max(1, roundNumber) - 1) % orderedQuestions.length];
 }
 
 function currentPublicAnswers() {
@@ -457,7 +463,7 @@ function desktopWindow(id, title, body, className = "") {
 
 function taskbarWindows() {
   return Object.entries(state.windowMeta)
-    .filter(([, meta]) => meta.minimized || meta.closed)
+    .filter(([id, meta]) => (meta.minimized || meta.closed) && ["monitor", "identities", "public"].includes(id))
     .map(([id]) => `<button type="button" class="taskbar-button" data-window-action="restore" data-window-id="${id}">${escapeHtml(windowTitle(id))}</button>`)
     .join("");
 }
@@ -1276,16 +1282,7 @@ function bindCommonEvents() {
     titlebar.addEventListener("pointerdown", onWindowDragStart);
   });
   document.getElementById("guessForm")?.addEventListener("submit", onSubmitGuesses);
-  const revealTrack = document.getElementById("revealTrack");
-  if (revealTrack) {
-    const seatIndex = Number(revealTrack.dataset.seatIndex || 0);
-    if (seatIndex !== lastRevealTrackSeatIndex) {
-      lastRevealTrackSeatIndex = seatIndex;
-      revealTrack.scrollLeft = revealTrack.scrollWidth;
-    }
-  } else {
-    lastRevealTrackSeatIndex = -1;
-  }
+  if (!document.getElementById("revealTrack")) lastRevealTrackSeatIndex = -1;
 }
 
 function openDmWindow(seatId) {
@@ -1483,6 +1480,12 @@ async function refreshAll() {
   state.participant = state.participants.find((participant) => participant.id === local.participantId) || null;
   state.game = gamesRes.data?.[0] || null;
   if (state.room?.status === "results" && state.game) state.game = { ...state.game, status: "results" };
+  if (state.game?.id && state.loadedGameId !== state.game.id) {
+    state.loadedGameId = state.game.id;
+    state.guessDrafts = {};
+    state.guessFormError = "";
+    state.isAutoSubmittingGuesses = false;
+  }
 
   if (state.game) {
     const [seatsRes, messagesRes, guessesRes] = await Promise.all([
@@ -1495,6 +1498,7 @@ async function refreshAll() {
     state.guesses = guessesRes.data || [];
     handleRealtimeEffects(previousMessageIds, previousRoundKey);
   } else {
+    state.loadedGameId = "";
     state.seats = [];
     state.messages = [];
     state.guesses = [];
@@ -1531,7 +1535,7 @@ function handleRealtimeEffects(previousMessageIds, previousRoundKey) {
 
   const roundKey = state.game?.status === "playing" ? `${state.game.id}:${state.game.round_number}` : "";
   if (roundKey && state.hasSeenPlayingRound && roundKey !== previousRoundKey) {
-    showToast("Message limits refreshed");
+    showToast("Message limits refreshed", { renderNow: false });
     playToneSequence([
       { frequency: 520, duration: 0.06, gap: 0.08, volume: 0.025 },
       { frequency: 700, duration: 0.08, gap: 0.08, volume: 0.025 },
@@ -1545,14 +1549,18 @@ function handleRealtimeEffects(previousMessageIds, previousRoundKey) {
 
 function subscribeRoom() {
   if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
+  const refreshIfCurrentGame = (payload) => {
+    const row = payload.new || payload.old || {};
+    if (!state.game?.id || row.game_id === state.game.id) refreshAll();
+  };
   state.realtimeChannel = supabase
     .channel(`room-${state.room.id}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "rooms", filter: `id=eq.${state.room.id}` }, refreshAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "participants", filter: `room_id=eq.${state.room.id}` }, refreshAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "games", filter: `room_id=eq.${state.room.id}` }, refreshAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `room_id=eq.${state.room.id}` }, refreshAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "seats" }, refreshAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "guesses" }, refreshAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "seats" }, refreshIfCurrentGame)
+    .on("postgres_changes", { event: "*", schema: "public", table: "guesses" }, refreshIfCurrentGame)
     .subscribe();
 }
 
@@ -1843,12 +1851,17 @@ function buildGuessPayload(form, allowBlanks) {
 }
 
 async function submitGuessPayload(guesses) {
-  const { error } = await supabase.from("guesses").upsert({
+  if (!state.game?.id || !state.participant?.id) return false;
+  const { data, error } = await supabase.from("guesses").upsert({
     game_id: state.game.id,
     participant_id: state.participant.id,
     guesses,
-  }, { onConflict: "game_id,participant_id" });
-  if (error) alert(error.message);
+  }, { onConflict: "game_id,participant_id" }).select("*").single();
+  if (error) {
+    alert(error.message);
+    return false;
+  }
+  state.guesses = state.guesses.filter((guess) => guess.participant_id !== state.participant.id).concat(data);
   return !error;
 }
 
@@ -1856,8 +1869,11 @@ async function autoSubmitGuesses() {
   if (state.isAutoSubmittingGuesses || !state.game || !state.participant) return;
   if (state.guesses.some((guess) => guess.participant_id === state.participant.id)) return;
   state.isAutoSubmittingGuesses = true;
-  await submitGuessPayload(buildGuessPayload(null, true));
-  state.isAutoSubmittingGuesses = false;
+  try {
+    await submitGuessPayload(buildGuessPayload(null, true));
+  } finally {
+    state.isAutoSubmittingGuesses = false;
+  }
   await refreshAll();
 }
 

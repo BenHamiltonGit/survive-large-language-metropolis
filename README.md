@@ -31,7 +31,8 @@ Use the included `render.yaml`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLI
 - Host configures AI seats, rounds, seconds per round, and message character limit.
 - Each game anonymizes all humans and AI seats with aliases, colors, and icons.
 - Each AI picks one human mimic target per game, preferring different targets when possible.
-- Per round, each human gets 1 public message, 2 new DMs, and 2 DM replies.
+- Each round asks a shared question. Every seat gets one public answer; DMs are currently disabled in active play.
+- AIs wait until someone else answers, then answer the round question in their mimic target's style.
 - After the final round, each human guesses Human/AI for every seat and can optionally match human seats to real players for bonus points.
 - Scoring is only positive points for correct guesses: +2 for Human/AI, +2 for correct human match.
 - Results show winners, reveals, total points, wins, then automatically count down into the next game.
