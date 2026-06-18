@@ -12,6 +12,7 @@ const REVEAL_GUESS_STAGGER = 2;
 const REVEAL_TRUTH_HOLD = 5;
 const REVEAL_SEAT_GAP = 1;
 const REVEAL_FINAL_HOLD = 8;
+const NEXT_GAME_COUNTDOWN_SECONDS = 10;
 
 const COLORS = ["#6ee7b7", "#f7c948", "#8bd3ff", "#fca5a5", "#c4b5fd", "#fdba74", "#a7f3d0", "#f0abfc"];
 const COLOR_NAMES = ["Mint", "Gold", "Sky", "Red", "Violet", "Orange", "Teal", "Pink"];
@@ -299,6 +300,9 @@ function settings() {
     roundCount: 3,
     roundSeconds: 60,
     charLimit: 160,
+    questionCursor: 0,
+    questionStartIndex: 0,
+    resultsRevealEndsAt: null,
     ...(state.room?.settings || {}),
   };
 }
@@ -320,12 +324,34 @@ function currentRoundMessages() {
 }
 
 function currentQuestion(roundNumber = state.game?.round_number || 1) {
-  const seed = state.game?.id || state.room?.id || "default";
-  const orderedQuestions = ROUND_QUESTIONS
-    .map((question, index) => ({ question, sort: stableRandom(`${seed}:question:${index}:${question}`) }))
+  const orderedQuestions = roomQuestionOrder();
+  const startIndex = normalizeQuestionIndex(settings().questionStartIndex);
+  const index = normalizeQuestionIndex(startIndex + Math.max(1, roundNumber) - 1);
+  return orderedQuestions[index];
+}
+
+function roomQuestionOrder() {
+  const seed = state.room?.id || "default";
+  return ROUND_QUESTIONS.map((question, index) => ({
+    question,
+    sort: stableRandom(`${seed}:question:${index}:${question}`),
+  }))
     .sort((left, right) => left.sort - right.sort)
     .map((entry) => entry.question);
-  return orderedQuestions[(Math.max(1, roundNumber) - 1) % orderedQuestions.length];
+}
+
+function normalizeQuestionIndex(value) {
+  const parsed = Number.parseInt(value, 10);
+  const safe = Number.isFinite(parsed) ? parsed : 0;
+  return ((safe % ROUND_QUESTIONS.length) + ROUND_QUESTIONS.length) % ROUND_QUESTIONS.length;
+}
+
+function nextGameIsArmed() {
+  return Boolean(state.room?.next_game_at);
+}
+
+function resultsRevealSeconds() {
+  return secondsUntil(settings().resultsRevealEndsAt);
 }
 
 function currentPublicAnswers() {
@@ -490,7 +516,11 @@ function topbar() {
   let timer = "--";
   if (phase === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
   if (phase === "guessing") timer = `Guesses close in ${state.countdown}s`;
-  if (phase === "results") timer = `Next game ${state.countdown}s`;
+  if (phase === "results") {
+    if (nextGameIsArmed()) timer = `Next game ${state.countdown}s`;
+    else if (resultsRevealSeconds() > 0) timer = `Reveal ${state.countdown}s`;
+    else timer = isHost() ? "Ready for host" : "Waiting for host";
+  }
   if (phase === "playing" || phase === "guessing") {
     const hudTitle = phase === "guessing" ? "GUESS_TIMER.EXE" : "GAME_TIMER.EXE";
     const timerText = `${state.countdown}s`;
@@ -999,7 +1029,7 @@ function seatRevealCard(seat, revealedCount, stage, isActive) {
 
 function revealProgress() {
   const timeline = resultsTimeline();
-  const elapsed = Math.min(timeline.total, Math.max(0, timeline.total - state.countdown));
+  const elapsed = Math.min(timeline.total, Math.max(0, timeline.total - resultsRevealSeconds()));
   const seats = state.seats;
   if (seats.length === 0 || elapsed >= timeline.seatsDuration) {
     return { done: true, timeline, seats };
@@ -1056,6 +1086,11 @@ function renderResults() {
 function renderFinalStandings() {
   const winnerPoints = Math.max(...state.participants.map((participant) => participant.last_points || 0), 0);
   const winners = state.participants.filter((participant) => participant.last_points === winnerPoints);
+  const launchStatus = nextGameIsArmed()
+    ? `<div class="countdown" id="resultsCountdown">Next game starts in ${state.countdown}</div>`
+    : isHost()
+      ? `<button class="primary" id="armNextGame" type="button">${state.isStartingGame ? "Starting..." : "Start next game"}</button>`
+      : `<div class="countdown" id="resultsCountdown">Waiting for host</div>`;
   return html`
     <section class="results-view">
       <div class="results-head window">
@@ -1068,7 +1103,7 @@ function renderFinalStandings() {
           <p class="eyebrow">Final standings</p>
           <h2>${winners.map((winner) => coloredName(winner.id, winner.display_name)).join(", ") || "No winner"} won</h2>
           </div>
-          <div class="countdown" id="resultsCountdown">Next game in ${state.countdown}</div>
+          ${launchStatus}
         </div>
       </div>
       <div class="results-grid">
@@ -1253,6 +1288,7 @@ function bindCommonEvents() {
   document.getElementById("cancelInviteJoin")?.addEventListener("click", cancelInviteJoin);
   document.getElementById("settingsForm")?.addEventListener("submit", onSaveSettings);
   document.getElementById("startGame")?.addEventListener("click", startGame);
+  document.getElementById("armNextGame")?.addEventListener("click", armNextGame);
   document.getElementById("copyLink")?.addEventListener("click", copyLink);
   document.getElementById("copyCode")?.addEventListener("click", copyRoomCode);
   document.getElementById("publicForm")?.addEventListener("submit", onPublicMessage);
@@ -1579,7 +1615,7 @@ function startLocalTimer() {
         render();
       }
       const countdownEl = document.getElementById("resultsCountdown");
-      if (countdownEl) countdownEl.textContent = `Next game in ${state.countdown}`;
+      if (countdownEl && nextGameIsArmed()) countdownEl.textContent = `Next game starts in ${state.countdown}`;
     } else {
       lastRevealSignature = "";
       updateTimerDisplay();
@@ -1593,7 +1629,7 @@ function startLocalTimer() {
 
 function updateCountdown() {
   const phase = activeStatus();
-  if (phase === "results") state.countdown = secondsUntil(state.room?.next_game_at);
+  if (phase === "results") state.countdown = nextGameIsArmed() ? secondsUntil(state.room?.next_game_at) : resultsRevealSeconds();
   else if (phase === "playing") state.countdown = secondsUntil(state.game?.round_ends_at);
   else if (phase === "guessing") state.countdown = secondsUntil(state.game?.round_ends_at);
   else state.countdown = 0;
@@ -1604,7 +1640,7 @@ function updateTimerDisplay() {
   let timer = "--";
   if (phase === "playing") timer = `Round ${state.game.round_number}/${settings().roundCount} - ${state.countdown}s`;
   if (phase === "guessing") timer = `Guesses close in ${state.countdown}s`;
-  if (phase === "results") timer = `Next game ${state.countdown}s`;
+  if (phase === "results") timer = nextGameIsArmed() ? `Next game ${state.countdown}s` : `Reveal ${state.countdown}s`;
   const phasePill = document.getElementById("phasePill");
   const timerPill = document.getElementById("timerPill");
   const roomPill = document.getElementById("roomPill");
@@ -1665,11 +1701,15 @@ async function onSaveSettings(event) {
 
 function settingsFromForm(formElement) {
   const form = new FormData(formElement);
+  const current = settings();
   return {
     aiCount: clamp(form.get("aiCount"), 1, 8, 2),
     roundCount: clamp(form.get("roundCount"), 1, 8, 3),
     roundSeconds: clamp(form.get("roundSeconds"), 10, 180, 60),
     charLimit: clamp(form.get("charLimit"), 40, 280, 160),
+    questionCursor: normalizeQuestionIndex(current.questionCursor),
+    questionStartIndex: normalizeQuestionIndex(current.questionStartIndex),
+    resultsRevealEndsAt: current.resultsRevealEndsAt || null,
   };
 }
 
@@ -1685,7 +1725,14 @@ async function startGame() {
   state.isStartingGame = true;
   render();
   const settingsForm = document.getElementById("settingsForm");
-  const s = settingsForm ? settingsFromForm(settingsForm) : settings();
+  const baseSettings = settingsForm ? settingsFromForm(settingsForm) : settings();
+  const questionStartIndex = normalizeQuestionIndex(baseSettings.questionCursor);
+  const s = {
+    ...baseSettings,
+    questionStartIndex,
+    questionCursor: normalizeQuestionIndex(questionStartIndex + baseSettings.roundCount),
+    resultsRevealEndsAt: null,
+  };
   const { error: settingsError } = await supabase.from("rooms").update({ settings: s }).eq("id", state.room.id);
   if (settingsError) {
     state.isStartingGame = false;
@@ -1732,6 +1779,28 @@ async function startGame() {
   state.game = game;
   state.isStartingGame = false;
   await refreshAll();
+}
+
+async function armNextGame() {
+  if (!isHost() || state.isStartingGame || activeStatus() !== "results") return;
+  state.isStartingGame = true;
+  render();
+  const { data, error } = await supabase
+    .from("rooms")
+    .update({ next_game_at: nowPlus(NEXT_GAME_COUNTDOWN_SECONDS) })
+    .eq("id", state.room.id)
+    .is("next_game_at", null)
+    .select("*")
+    .single();
+  if (error) {
+    state.isStartingGame = false;
+    render();
+    return alert(error.message);
+  }
+  state.room = data;
+  state.isStartingGame = false;
+  updateCountdown();
+  render();
 }
 
 function buildSeats(gameId, aiCount) {
@@ -1902,7 +1971,7 @@ async function hostMaintenance() {
   ) {
     await scoreGame();
   }
-  if (phase === "results" && state.countdown <= 0) {
+  if (phase === "results" && nextGameIsArmed() && state.countdown <= 0) {
     await startGame();
   }
 }
@@ -1934,11 +2003,15 @@ async function scoreGame() {
       .eq("id", entry.participant.id);
     await supabase.from("guesses").update({ points: entry.points }).eq("game_id", state.game.id).eq("participant_id", entry.participant.id);
   }
-  const nextGameAt = nowPlus(resultsTimeline().total);
+  const resultsRevealEndsAt = nowPlus(resultsTimeline().total);
+  const nextSettings = { ...settings(), resultsRevealEndsAt };
   await supabase.from("games").update({ status: "results" }).eq("id", state.game.id);
-  await supabase.from("rooms").update({ status: "results", next_game_at: nextGameAt }).eq("id", state.room.id);
+  await supabase
+    .from("rooms")
+    .update({ status: "results", next_game_at: null, settings: nextSettings })
+    .eq("id", state.room.id);
   state.game = { ...state.game, status: "results" };
-  state.room = { ...state.room, status: "results", next_game_at: nextGameAt };
+  state.room = { ...state.room, status: "results", next_game_at: null, settings: nextSettings };
   updateCountdown();
   render();
 }

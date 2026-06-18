@@ -35,11 +35,11 @@ Use the included `render.yaml`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLI
 - AIs wait until someone else answers, then answer the round question in their mimic target's style.
 - After the final round, each human guesses Human/AI for every seat and can optionally match human seats to real players for bonus points.
 - Scoring is only positive points for correct guesses: +2 for Human/AI, +2 for correct human match.
-- Results show winners, reveals, total points, wins, then automatically count down into the next game.
+- Results show winners, reveals, total points, and wins. After the reveal finishes, the host can start a 10-second countdown into the next game.
 
 ## Notes
 
-- The host browser currently acts as the game master for timers, AI mock messages, scoring, and next-game starts.
+- The host browser currently acts as the game master for timers, AI mock messages, scoring, and host-approved next-game starts.
 - AI text in the browser is mocked for local play, but `supabase/functions/ai-turn` contains the server-side Edge Function path for real provider calls.
 - The deployed `ai-turn` function is configured for OpenAI with `LLM_PROVIDER=openai`, `OPENAI_MODEL=gpt-4o-mini`, and `OPENAI_API_KEY`.
 - If AI turns fail with an OpenAI quota error, enable billing or add credits in the OpenAI Platform account.

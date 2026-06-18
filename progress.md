@@ -42,6 +42,8 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Tightened AI reply routing with explicit reply modes, trigger/channel validation, public-only board context, DM-thread context, and extra per-AI stagger. Added a top identity/label strip and made room refreshes refetch room status so guests see results/reveal.
 - Active gameplay now disables DMs and runs public question rounds: one answer per seat each round, AIs wait for someone else to answer before posting, and the host advances when all identities answer or the timer expires.
 - Expanded the round question bank and made AI answer timing adapt to the current room's answer pace with per-AI variance.
+- Results no longer auto-start the next game. The reveal uses its own saved animation deadline, then final standings stay up until the host clicks Start next game, which arms a synced 10-second countdown.
+- Round questions now use a room-wide shuffled order with a saved cursor in room settings, so back-to-back games walk through the whole question bank before wrapping.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.
