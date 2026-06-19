@@ -44,6 +44,7 @@ Original prompt: Build a web game where anonymous human players and AI seats mes
 - Expanded the round question bank and made AI answer timing adapt to the current room's answer pace with per-AI variance.
 - Results no longer auto-start the next game. The reveal uses its own saved animation deadline, then final standings stay up until the host clicks Start next game, which arms a synced 10-second countdown.
 - Round questions now use a room-wide shuffled order with a saved cursor in room settings, so back-to-back games walk through the whole question bank before wrapping.
+- Extra bug pass: deleted rooms now reset clients back to connect, host maintenance is guarded against overlapping realtime/timer runs, and a newly inserted playing game now wins over stale `results` room status during next-game startup.
 - Key rule decisions from user:
   - End-of-game labeling is the core mechanic.
   - Round count is host configurable.

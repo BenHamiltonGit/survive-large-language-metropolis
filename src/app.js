@@ -132,6 +132,7 @@ const state = {
   aiDelayCache: new Map(),
   aiLockScope: "",
   isStartingGame: false,
+  isHostMaintaining: false,
   isAutoSubmittingGuesses: false,
   guessFormError: "",
   lobbyNotice: "",
@@ -504,8 +505,8 @@ function windowTitle(id) {
 }
 
 function activeStatus() {
-  if (state.room?.status === "results" || state.game?.status === "results") return "results";
   if (state.game?.status === "playing") return "playing";
+  if (state.room?.status === "results" || state.game?.status === "results") return "results";
   if (state.room?.status === "guessing" || state.game?.status === "guessing") return "guessing";
   return state.room?.status || state.phase;
 }
@@ -1511,11 +1512,18 @@ async function refreshAll() {
     supabase.from("participants").select("*").eq("room_id", state.room.id).is("left_at", null).order("created_at"),
     supabase.from("games").select("*").eq("room_id", state.room.id).order("created_at", { ascending: false }).limit(1),
   ]);
+  if (roomRes.error || !roomRes.data) {
+    resetRoomState();
+    render();
+    return;
+  }
   if (roomRes.data) state.room = roomRes.data;
   state.participants = participantsRes.data || [];
   state.participant = state.participants.find((participant) => participant.id === local.participantId) || null;
   state.game = gamesRes.data?.[0] || null;
-  if (state.room?.status === "results" && state.game) state.game = { ...state.game, status: "results" };
+  if (state.room?.status === "results" && state.game && state.game.status !== "playing") {
+    state.game = { ...state.game, status: "results" };
+  }
   if (state.game?.id && state.loadedGameId !== state.game.id) {
     state.loadedGameId = state.game.id;
     state.guessDrafts = {};
@@ -1550,6 +1558,41 @@ async function refreshAll() {
   }
   render();
   await hostMaintenance();
+}
+
+function resetRoomState() {
+  if (state.realtimeChannel) {
+    supabase.removeChannel(state.realtimeChannel);
+    state.realtimeChannel = null;
+  }
+  state.phase = "connect";
+  state.room = null;
+  state.participant = null;
+  state.participants = [];
+  state.game = null;
+  state.loadedGameId = "";
+  state.seats = [];
+  state.messages = [];
+  state.guesses = [];
+  state.guessDrafts = {};
+  state.drafts = { public: "", direct: {} };
+  state.selectedDmSeatId = "";
+  state.countdown = 0;
+  state.aiSendLocks.clear();
+  state.aiDelayCache.clear();
+  state.aiLockScope = "";
+  state.isStartingGame = false;
+  state.isHostMaintaining = false;
+  state.isAutoSubmittingGuesses = false;
+  state.hasLoadedMessages = false;
+  state.knownMessageIds = new Set();
+  state.lastPlayingRoundKey = "";
+  state.hasSeenPlayingRound = false;
+  local.participantId = "";
+  localStorage.removeItem("llm-metropolis-participant-id");
+  const url = new URL(window.location.href);
+  url.searchParams.delete("room");
+  window.history.replaceState({}, "", url);
 }
 
 function handleRealtimeEffects(previousMessageIds, previousRoundKey) {
@@ -1947,32 +1990,37 @@ async function autoSubmitGuesses() {
 }
 
 async function hostMaintenance() {
-  if (!isHost() || !state.room) return;
-  const phase = activeStatus();
-  if (phase === "playing" && (state.countdown <= 0 || allSeatsAnswered())) {
-    if (state.game.round_number >= settings().roundCount) {
-      await supabase.from("games").update({ status: "guessing", round_ends_at: nowPlus(GUESS_SECONDS) }).eq("id", state.game.id);
-      await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
-      return;
+  if (!isHost() || !state.room || state.isHostMaintaining) return;
+  state.isHostMaintaining = true;
+  try {
+    const phase = activeStatus();
+    if (phase === "playing" && (state.countdown <= 0 || allSeatsAnswered())) {
+      if (state.game.round_number >= settings().roundCount) {
+        await supabase.from("games").update({ status: "guessing", round_ends_at: nowPlus(GUESS_SECONDS) }).eq("id", state.game.id);
+        await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
+        return;
+      }
+      await supabase
+        .from("games")
+        .update({ round_number: state.game.round_number + 1, round_ends_at: nowPlus(settings().roundSeconds) })
+        .eq("id", state.game.id);
+      await refreshAll();
     }
-    await supabase
-      .from("games")
-      .update({ round_number: state.game.round_number + 1, round_ends_at: nowPlus(settings().roundSeconds) })
-      .eq("id", state.game.id);
-    await refreshAll();
-  }
-  if (phase === "playing") {
-    await runAiRoundMessages();
-  }
-  if (
-    phase === "guessing" &&
-    state.participants.length > 0 &&
-    (state.countdown <= 0 || state.guesses.length >= state.participants.length)
-  ) {
-    await scoreGame();
-  }
-  if (phase === "results" && nextGameIsArmed() && state.countdown <= 0) {
-    await startGame();
+    if (phase === "playing") {
+      await runAiRoundMessages();
+    }
+    if (
+      phase === "guessing" &&
+      state.participants.length > 0 &&
+      (state.countdown <= 0 || state.guesses.length >= state.participants.length)
+    ) {
+      await scoreGame();
+    }
+    if (phase === "results" && nextGameIsArmed() && state.countdown <= 0) {
+      await startGame();
+    }
+  } finally {
+    state.isHostMaintaining = false;
   }
 }
 
